@@ -13,6 +13,7 @@ toolsets:
       - pscp_fetch
       - ted_fetch
       - ted_search
+      - borme_search
       - transparency_fetch
       - searxng_search
       - browserless_render
