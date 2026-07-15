@@ -1,15 +1,15 @@
 name: cohesion_fetch
-description: "Fetch Cohesion Data — datos de fondos de cohesión europeos"
-command: /app/bin/cohesion-agent
+description: "Fetch Cohesion Data — fondos de cohesión europeos (DG REGIO/EMPL, Socrata SODA)"
+command: python3
 args:
-  - "--mcp"
-timeout: 300s
+  - main.py
+timeout: 120s
 input_schema:
   type: object
   properties:
     date:
       type: string
-      description: "Fecha específica (YYYY-MM-DD). Si no se especifica, usa hoy."
+      description: "Fecha específica (YYYY-MM-DD). Si no se especifica, usa el último ciclo de transmisión disponible."
     from:
       type: string
       description: "Inicio de rango histórico (YYYY-MM-DD). Requiere 'to'."
