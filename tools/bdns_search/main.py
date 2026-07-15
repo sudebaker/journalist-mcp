@@ -9,19 +9,11 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "bdns_search")
 
-BDNS_URL = "https://www.pap.hacienda.gob.es/bdnstrans/"
+BDNS_URL = "https://www.pap.hacienda.gob.es/bdnstrans"
 BDNS_SEARCH_URL = f"{BDNS_URL}/api/consulta-beneficiarios"
 
 
 def search_bdns(target: str, target_type: str):
-    """Search BDNS by beneficiary. Currently returns not-implemented.
-    
-    Full implementation requires:
-    1. GET BDNS首页 to extract javax.faces.ViewState token
-    2. POST search form with beneficiary filter
-    3. Parse HTML response table
-    4. Extract subvencion records (organismo, objeto, cuantia, fecha)
-    """
     return None, "BDNS scraping not yet implemented — requires JSF ViewState handling"
 
 
