@@ -2,4 +2,4 @@ bin/
 *.out
 *.test
 .env
-server
+/server
