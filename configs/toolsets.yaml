@@ -12,6 +12,7 @@ toolsets:
       - fts_fetch
       - pscp_fetch
       - ted_fetch
+      - ted_search
       - transparency_fetch
       - searxng_search
       - browserless_render

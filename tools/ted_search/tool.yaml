@@ -1,0 +1,29 @@
+name: ted_search
+description: "Busca licitaciones europeas en TED (Tenders Electronic Daily) por NIF/nombre de organización. Fuente oficial UE."
+command: python3
+args:
+  - main.py
+timeout: 60s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "NIF/CIF o nombre de la organización a buscar"
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador"
+    date_from:
+      type: string
+      description: "Filtrar desde (YYYY-MM-DD). Default: 1 año atrás."
+    date_to:
+      type: string
+      description: "Filtrar hasta (YYYY-MM-DD). Default: hoy."
+    count:
+      type: integer
+      default: 20
+      description: "Máximo resultados (default 20)"
+  required:
+    - target
