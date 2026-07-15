@@ -38,9 +38,8 @@ def main() -> None:
                             "error": {"code": "SEARCH_FAILED", "message": error}})
             return
         write_response({
-            "success": True, "request_id": request_id,
-            "content": [{"type": "text", "text": "Contratacion search completed"}],
-            "structured_content": {"source": "contratacion", "target": target, "results": results or [], "count": 0},
+            "success": False, "request_id": request_id,
+            "error": {"code": "NOT_IMPLEMENTED", "message": "Contratacion scraping not yet implemented"},
         })
     except json.JSONDecodeError:
         write_response({"success": False, "request_id": "",
