@@ -157,15 +157,24 @@ func TestBuildDependencies_EmptyConfig(t *testing.T) {
 		t.Errorf("expected nil deps for nil config, got %d", len(deps))
 	}
 
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432")
+
 	emptyCfg := &config.Config{}
 	deps = BuildDependencies(emptyCfg)
-	// Should have redis and postgres placeholder entries
-	if len(deps) < 2 {
-		t.Errorf("expected at least 2 deps (redis, postgres), got %d", len(deps))
+	if len(deps) != 2 {
+		t.Errorf("expected 2 deps (redis, postgres), got %d", len(deps))
 	}
 }
 
 func TestBuildDependencies_WithTools(t *testing.T) {
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432")
+	t.Setenv("CRAWL4AI_URL", "http://crawl4ai:8000")
+	t.Setenv("SEARXNG_URL", "http://searxng:8080")
+	t.Setenv("RUSTFS_ENDPOINT", "rustfs:9000")
+	t.Setenv("LLM_API_URL", "http://localhost:11434")
+
 	cfg := &config.Config{
 		Tools: []config.ToolConfig{
 			{Name: "browser_scraper"},
@@ -176,7 +185,7 @@ func TestBuildDependencies_WithTools(t *testing.T) {
 	}
 
 	deps := BuildDependencies(cfg)
-	// redis + postgres (2) + browserless, searxng, rustfs, ollama (4) = 6
+	// redis + postgres (2) + crawl4ai, searxng, rustfs, ollama (4) = 6
 	if len(deps) != 6 {
 		t.Errorf("expected 6 deps, got %d: %v", len(deps), deps)
 	}
@@ -186,7 +195,7 @@ func TestBuildDependencies_WithTools(t *testing.T) {
 		names[d.Name] = true
 	}
 
-	expected := []string{"redis", "postgres", "browserless", "searxng", "rustfs", "ollama"}
+	expected := []string{"redis", "postgres", "crawl4ai", "searxng", "rustfs", "ollama"}
 	for _, name := range expected {
 		if !names[name] {
 			t.Errorf("expected dependency %q not found", name)
@@ -195,6 +204,9 @@ func TestBuildDependencies_WithTools(t *testing.T) {
 }
 
 func TestBuildDependencies_NoExternalTools(t *testing.T) {
+	t.Setenv("REDIS_URL", "redis://localhost:6379")
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432")
+
 	cfg := &config.Config{
 		Tools: []config.ToolConfig{
 			{Name: "echo"},
@@ -245,17 +257,15 @@ func TestCheckDependency_Unreachable(t *testing.T) {
 
 func TestRunAllChecks_WithDependencies(t *testing.T) {
 	deps := []DependencyCheck{
-		{Name: "redis", URL: "", Critical: false},
-		{Name: "postgres", URL: "", Critical: false},
 		{Name: "test-dep", URL: "", Tool: "test_tool"},
 	}
 
 	checker := NewChecker(nil, nil, nil, deps)
 	results := checker.RunAllChecks(context.Background())
 
-	// Should include: redis, postgres, config, memory + test-dep = 5
-	if len(results) != 5 {
-		t.Errorf("expected 5 checks (redis, postgres, config, memory, test-dep), got %d", len(results))
+	// config + memory + test-dep = 3
+	if len(results) != 3 {
+		t.Errorf("expected 3 checks (config, memory, test-dep), got %d", len(results))
 	}
 
 	// Verify test-dep is in results
