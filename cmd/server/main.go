@@ -20,6 +20,7 @@ import (
 	"github.com/sudebaker/journalist-mcp/internal/config"
 	"github.com/sudebaker/journalist-mcp/internal/executor"
 	"github.com/sudebaker/journalist-mcp/internal/health"
+	"github.com/sudebaker/journalist-mcp/internal/orchestrator"
 	"github.com/sudebaker/journalist-mcp/internal/prompts"
 	"github.com/sudebaker/journalist-mcp/internal/session"
 	"github.com/sudebaker/journalist-mcp/internal/tracing"
@@ -148,6 +149,60 @@ func main() {
 		}
 		registerTool(mcpServer, exec, toolCfg)
 	}
+
+	invTool := mcp.NewTool("journalist_investigate",
+		mcp.WithDescription("Investiga un NIF, CIF o nombre en multiples fuentes oficiales en paralelo. Devuelve resultados agregados de TED, BORME, BOE y busqueda web."),
+		mcp.WithOpenWorldHintAnnotation(true),
+	)
+	invTool.InputSchema = mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"target":      map[string]interface{}{"type": "string", "description": "NIF, CIF o nombre a investigar"},
+			"target_type": map[string]interface{}{"type": "string", "enum": []string{"nif", "cif", "name", "auto"}, "default": "auto"},
+			"sources":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Fuentes a consultar (vacio = todas)"},
+			"date_from":   map[string]interface{}{"type": "string", "description": "Filtrar desde (YYYY-MM-DD)"},
+			"date_to":     map[string]interface{}{"type": "string", "description": "Filtrar hasta (YYYY-MM-DD)"},
+		},
+		Required: []string{"target"},
+	}
+	orch := orchestrator.New(cfg, exec)
+	mcpServer.AddTool(invTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		args, ok := req.Params.Arguments.(map[string]interface{})
+		if !ok {
+			return mcp.NewToolResultError("Invalid arguments"), nil
+		}
+		invReq := orchestrator.InvestigateRequest{
+			Target:     strArg(args, "target"),
+			TargetType: strArg(args, "target_type"),
+			DateFrom:   strArg(args, "date_from"),
+			DateTo:     strArg(args, "date_to"),
+		}
+		if sources, ok := args["sources"].([]interface{}); ok {
+			for _, s := range sources {
+				if name, ok := s.(string); ok {
+					invReq.Sources = append(invReq.Sources, name)
+				}
+			}
+		}
+		result := orch.Investigate(ctx, invReq)
+		text := fmt.Sprintf("**Investigacion de %s (%s)**\n\n", result.Target, result.TargetType)
+		for _, sr := range result.SourceResults {
+			status := "X"
+			if sr.Success {
+				status = "OK"
+			}
+			errMsg := sr.Error
+			if errMsg == "" {
+				errMsg = "success"
+			}
+			text += fmt.Sprintf("[%s] %s: %s\n", status, sr.Source, errMsg)
+		}
+		structured, _ := json.Marshal(result)
+		return &mcp.CallToolResult{
+			Content:          []mcp.Content{mcp.TextContent{Type: "text", Text: text}},
+			StructuredContent: json.RawMessage(structured),
+		}, nil
+	})
 
 	if len(cfg.Prompts) > 0 {
 		log.Info().Int("count", len(cfg.Prompts)).Msg("Registering prompts from configuration")
@@ -400,4 +455,13 @@ func containsParam(rawURL, param string) bool {
 
 func containsChar(s string, c byte) bool {
 	return strings.IndexByte(s, c) >= 0
+}
+
+func strArg(args map[string]interface{}, key string) string {
+	if v, ok := args[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }

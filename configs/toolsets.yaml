@@ -19,3 +19,4 @@ toolsets:
       - searxng_search
       - browserless_render
       - list_sources
+      - journalist_investigate
