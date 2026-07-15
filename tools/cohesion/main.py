@@ -72,21 +72,27 @@ REQUEST_TIMEOUT = 30  # seconds
 def _date_to_cycle(date_str: str) -> str:
     """Map a YYYY-MM-DD date to the YYYYMM transmission cycle containing it.
 
-    Cohesion data is published in mid-year (June) and end-of-year (December)
-    cycles. We pick the closest cycle <= the requested date, with December
-    as a safe default when the date falls in the first half of the year.
+    The Table 2 dataset is published in December cycles only (per the
+    dataset's own description: "It includes each December cycle of
+    Transmissions of data (annual cumulative data)."). So a date in either
+    half of a given year maps to that year's December cycle. If the
+    December cycle for the requested year hasn't been published yet, the
+    Socrata query simply returns zero rows — which is the correct
+    behaviour.
     """
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError as exc:
         raise ValueError(f"Invalid date '{date_str}', expected YYYY-MM-DD") from exc
-    if dt.month >= 7:
-        return f"{dt.year}12"
-    return f"{dt.year}06"
+    return f"{dt.year}12"
 
 
 def _cycles_in_range(date_from: str, date_to: str) -> list[str]:
-    """Enumerate every YYYYMM cycle whose end-of-period falls in [from, to]."""
+    """Enumerate every YYYYMM cycle whose end-of-period falls in [from, to].
+
+    Table 2 is published in December cycles only, so we walk December of
+    every year in the range, inclusive.
+    """
     try:
         d_from = datetime.strptime(date_from, "%Y-%m-%d")
         d_to = datetime.strptime(date_to, "%Y-%m-%d")
@@ -97,12 +103,10 @@ def _cycles_in_range(date_from: str, date_to: str) -> list[str]:
     if d_to < d_from:
         raise ValueError("'to' must be on or after 'from'")
     cycles: list[str] = []
-    # Walk June and December of every year in the range, inclusive.
     for year in range(d_from.year, d_to.year + 1):
-        for month in (6, 12):
-            cycle_end = datetime(year, month, 28)
-            if d_from <= cycle_end <= d_to:
-                cycles.append(f"{year}{month:02d}")
+        cycle_end = datetime(year, 12, 28)
+        if d_from <= cycle_end <= d_to:
+            cycles.append(f"{year}12")
     return cycles
 
 
