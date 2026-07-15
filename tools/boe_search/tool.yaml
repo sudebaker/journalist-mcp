@@ -1,0 +1,25 @@
+name: boe_search
+description: "Busca disposiciones y anuncios en BOE por NIF/nombre. Descarga sumarios por rango de fechas y filtra localmente."
+command: python3
+args:
+  - main.py
+timeout: 120s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "NIF/CIF o nombre a buscar en el texto de anuncios"
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador"
+    date_from:
+      type: string
+      description: "Inicio del rango (YYYY-MM-DD). Default: 30 días atrás."
+    date_to:
+      type: string
+      description: "Fin del rango (YYYY-MM-DD). Default: hoy."
+  required:
+    - target
