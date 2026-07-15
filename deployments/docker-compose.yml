@@ -14,8 +14,8 @@ services:
 
   mcp-server:
     build:
-      context: ..
-      dockerfile: journalist-mcp/deployments/Dockerfile
+      context: .
+      dockerfile: deployments/Dockerfile
     expose:
       - "8080"
     environment:
