@@ -1,0 +1,24 @@
+name: boe_fetch
+description: "Fetch BOE (Boletín Oficial del Estado) — sumario diario con disposiciones, anuncios y edictos"
+command: /app/bin/boe-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties:
+    date:
+      type: string
+      description: "Fecha específica (YYYY-MM-DD). Si no se especifica, usa hoy."
+    from:
+      type: string
+      description: "Inicio de rango histórico (YYYY-MM-DD). Requiere 'to'."
+    to:
+      type: string
+      description: "Fin de rango histórico (YYYY-MM-DD). Requiere 'from'."
+    workers:
+      type: integer
+      description: "Número de workers para fetch histórico (default: 4)"
+    rate_limit:
+      type: integer
+      description: "Límite de requests por minuto (default: config)"

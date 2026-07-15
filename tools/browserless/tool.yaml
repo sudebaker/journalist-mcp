@@ -1,0 +1,25 @@
+name: browserless_render
+description: "Render a web page with headless Chrome — útil para páginas con JavaScript pesado, paywalls o contenido dinámico"
+command: python3
+args:
+  - main.py
+timeout: 60s
+input_schema:
+  type: object
+  properties:
+    url:
+      type: string
+      description: "URL a renderizar (debe empezar con http:// o https://)"
+    selector:
+      type: string
+      description: "Selector CSS opcional para extraer contenido específico"
+    wait_until:
+      type: string
+      default: networkidle0
+      description: "Cuándo considerar la página cargada: load, domcontentloaded, networkidle0, networkidle2"
+    timeout_ms:
+      type: integer
+      default: 30000
+      description: "Timeout en milisegundos para la carga (default: 30000)"
+  required:
+    - url

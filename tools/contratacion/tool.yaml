@@ -1,0 +1,9 @@
+name: contratacion_fetch
+description: "Fetch Contratación del Sector Público — licitaciones y contratos públicos"
+command: /app/bin/contratacion-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

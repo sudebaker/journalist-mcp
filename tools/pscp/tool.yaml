@@ -1,0 +1,9 @@
+name: pscp_fetch
+description: "Fetch PSCP (Plataforma de Contratación del Sector Público) — licitaciones de la plataforma estatal"
+command: /app/bin/pscp-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

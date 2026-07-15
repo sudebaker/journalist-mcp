@@ -1,0 +1,9 @@
+name: datosgob_fetch
+description: "Fetch datasets from datos.gob.es — portal de datos abiertos del Gobierno de España"
+command: /app/bin/datosgob-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

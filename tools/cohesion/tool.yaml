@@ -1,0 +1,18 @@
+name: cohesion_fetch
+description: "Fetch Cohesion Data — datos de fondos de cohesión europeos"
+command: /app/bin/cohesion-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties:
+    date:
+      type: string
+      description: "Fecha específica (YYYY-MM-DD). Si no se especifica, usa hoy."
+    from:
+      type: string
+      description: "Inicio de rango histórico (YYYY-MM-DD). Requiere 'to'."
+    to:
+      type: string
+      description: "Fin de rango histórico (YYYY-MM-DD). Requiere 'from'."

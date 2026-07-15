@@ -1,75 +1,18 @@
 toolsets:
-  default:
-    description: "Herramientas generales para usuarios finales"
+  osint-es:
+    description: "OSIM en fuentes abiertas españolas y europeas"
     tools:
-      - analyze_data
-      - analyze_image
-      - batch_summarize
-      - browser_scraper
-      - canvas_diagram
-      - config_auditor
-      - datetime
-      - document_classifier
-      - echo
-      - generate_report
-      - kb_ingest
-      - kb_search
-      - regulation_diff
-      - rss_reader
-      - rustfs_storage
+      - boe_fetch
+      - borme_fetch
+      - bdns_fetch
+      - ckan_fetch
+      - cohesion_fetch
+      - contratacion_fetch
+      - datosgob_fetch
+      - fts_fetch
+      - pscp_fetch
+      - ted_fetch
+      - transparency_fetch
       - searxng_search
-      - transcribe
-      - weather_forecast
-      - web_scraper
-
-  ocu-investigacion:
-    description: "Herramientas forenses y de investigación para la OCU (25 tools: 11 base + 14 forenses)"
-    tools:
-      # Bases compartidas (testing, kb, web, media)
-      - echo
-      - datetime
-      - kb_ingest
-      - kb_search
-      - searxng_search
-      - browser_scraper
-      - web_scraper
-      - analyze_image
-      - transcribe
-      - generate_report
-      - rustfs_storage
-
-      # Forenses OCu
-      - memgraph_query
-      - opensearch_query
-      - audit_log
-      - case_evidence
-      - forensic_ingest
-      - cross_reference
-
-      # Forenses nuevas (junio 2026)
-      - timeline_generator
-      - communication_graph
-      - financial_flow
-      - entity_resolution
-      - metadata_extractor
-      - stego_detector
-      - document_fingerprint
-      - geolocation_mapper
-
-  development:
-    description: "Herramientas para desarrollo de software"
-    tools:
-      - datetime
-      - kb_ingest
-      - kb_search
-      - generate_report
-      - opencode_context
-      - codebase_scan
-      - dependency_audit
-      - security_lint
-      - doc_generator
-      - refactor_suggester
-      - changelog_generator
-      - api_diff
-      - license_auditor
-      - format_checker
+      - browserless_render
+      - list_sources

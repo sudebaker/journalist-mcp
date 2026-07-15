@@ -1,0 +1,9 @@
+name: fts_fetch
+description: "Fetch FTS (Financial Tracking Service) — seguimiento de financiación humanitaria"
+command: /app/bin/fts-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

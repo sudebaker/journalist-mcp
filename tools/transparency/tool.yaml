@@ -1,0 +1,9 @@
+name: transparency_fetch
+description: "Fetch Transparency Portal — portal de transparencia de la Administración General del Estado"
+command: /app/bin/transparency-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

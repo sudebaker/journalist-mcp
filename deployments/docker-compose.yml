@@ -1,0 +1,104 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - mcp-server
+    networks:
+      - frontend
+      - backend
+
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: journalist-mcp/deployments/Dockerfile
+    expose:
+      - "8080"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://mcp:mcp@postgres:5432/knowledge}
+      - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      - CRAWL4AI_URL=${CRAWL4AI_URL:-http://crawl4ai:11235}
+      - BROWSERLESS_URL=${BROWSERLESS_URL:-http://browserless:3000}
+      - TEXTFLOW_ENDPOINT=${TEXTFLOW_ENDPOINT:-}
+      - TEXTFLOW_WEBHOOK_URL=${TEXTFLOW_WEBHOOK_URL:-}
+      - TEXTFLOW_WEBHOOK_SECRET=${TEXTFLOW_WEBHOOK_SECRET:-}
+      - TENANT_ID=${TENANT_ID:-default}
+      - MCP_TOOLSET=osint-es
+    volumes:
+      - mcp-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: mcp
+      POSTGRES_PASSWORD: mcp
+      POSTGRES_DB: knowledge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp -d knowledge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    environment:
+      RUSTFS_ROOT: /data
+      RUSTFS_USER: rustfsadmin
+      RUSTFS_PASSWORD: rustfsadmin
+    volumes:
+      - rustfs-data:/data
+    networks:
+      - backend
+
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - searxng-data:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost/searxng
+    networks:
+      - backend
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    networks:
+      - backend
+
+  browserless:
+    image: browserless/chrome:latest
+    environment:
+      - MAX_CONCURRENT_SESSIONS=5
+      - PREBOOT_CHROME=true
+      - CONNECTION_TIMEOUT=120000
+    networks:
+      - backend
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  mcp-data:
+  pgdata:
+  rustfs-data:
+  searxng-data:

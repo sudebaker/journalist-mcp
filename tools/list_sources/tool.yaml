@@ -1,0 +1,9 @@
+name: list_sources
+description: "Lista las fuentes de datos disponibles en journalist-mcp, su estado y descripción"
+command: python3
+args:
+  - main.py
+timeout: 10s
+input_schema:
+  type: object
+  properties: {}

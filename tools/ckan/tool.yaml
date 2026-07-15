@@ -1,0 +1,9 @@
+name: ckan_fetch
+description: "Fetch datasets from CKAN portal — catálogos de datos abiertos"
+command: /app/bin/ckan-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}

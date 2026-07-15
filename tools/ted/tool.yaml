@@ -1,0 +1,9 @@
+name: ted_fetch
+description: "Fetch TED (Tenders Electronic Daily) — licitaciones públicas europeas"
+command: /app/bin/ted-agent
+args:
+  - "--mcp"
+timeout: 300s
+input_schema:
+  type: object
+  properties: {}
