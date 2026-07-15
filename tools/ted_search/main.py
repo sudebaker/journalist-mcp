@@ -21,9 +21,9 @@ TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 
 def build_expert_query(target: str, target_type: str, date_from: str, date_to: str) -> str:
     if target_type in ("nif", "cif"):
-        parts = [f'NDL=["ES-{target}"]']
+        parts = [f'organisation-identifier-buyer="{target}"']
     else:
-        parts = [f'NDL=["ES*"] AND ORG_NAME="{target}"']
+        parts = [f'organisation-name-buyer="{target}"']
     if date_from and date_to:
         parts.append(f'PD>={date_from} AND PD<={date_to}')
     return " AND ".join(parts)
@@ -43,7 +43,7 @@ def search_ted(target: str, target_type: str, date_from: str, date_to: str, coun
     query = build_expert_query(target, target_type, date_from, date_to)
     payload = {
         "query": query,
-        "fields": ["ND", "TI", "PD", "ORG_NAME", "ORG_NAT_ID"],
+        "fields": ["ND", "publication-date", "organisation-name-buyer", "organisation-identifier-buyer"],
         "limit": min(count, 100),
     }
     try:
@@ -56,10 +56,10 @@ def search_ted(target: str, target_type: str, date_from: str, date_to: str, coun
         for n in notices[:count]:
             results.append({
                 "notice_id": n.get("ND", ""),
-                "title": n.get("TI", ""),
-                "publication_date": n.get("PD", ""),
-                "organization": n.get("ORG_NAME", ""),
-                "org_national_id": n.get("ORG_NAT_ID", ""),
+                "title": n.get("notice-title", ""),
+                "publication_date": n.get("publication-date", ""),
+                "organization": n.get("organisation-name-buyer", ""),
+                "org_national_id": n.get("organisation-identifier-buyer", ""),
             })
         return results, None
     except requests.exceptions.Timeout:
