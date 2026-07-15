@@ -16,6 +16,7 @@ toolsets:
       - borme_search
       - boe_search
       - bdns_search
+      - contratacion_search
       - transparency_fetch
       - searxng_search
       - browserless_render

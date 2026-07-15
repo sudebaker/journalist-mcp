@@ -1,0 +1,19 @@
+name: contratacion_search
+description: "Busca licitaciones y contratos en Contratacion del Estado por NIF/CIF de adjudicatario. Requiere scraping del formulario web."
+command: python3
+args:
+  - main.py
+timeout: 120s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "NIF/CIF del adjudicatario o nombre de empresa"
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador"
+  required:
+    - target
