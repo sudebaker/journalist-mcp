@@ -1,0 +1,19 @@
+name: bdns_search
+description: "Busca subvenciones en BDNS (Base de Datos Nacional de Subvenciones) por beneficiario (NIF/nombre). Requiere scraping del formulario web."
+command: python3
+args:
+  - main.py
+timeout: 120s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "NIF/CIF o nombre del beneficiario"
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador"
+  required:
+    - target

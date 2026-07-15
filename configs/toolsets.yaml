@@ -15,6 +15,7 @@ toolsets:
       - ted_search
       - borme_search
       - boe_search
+      - bdns_search
       - transparency_fetch
       - searxng_search
       - browserless_render
