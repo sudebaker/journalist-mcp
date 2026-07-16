@@ -11,7 +11,8 @@ RUN go mod download && \
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir requests
 
 COPY --from=server-builder /out/bin/mcp-server /app/bin/mcp-server
 COPY tools/ /app/tools/
