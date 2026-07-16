@@ -236,7 +236,7 @@ def _build_payload(target: str, target_type: str, timeout_s: int) -> dict[str, A
     ``result.html`` (or ``result.markdown`` if requested).
     """
     return {
-        "url": BUSQUEDA_URL,
+        "urls": [BUSQUEDA_URL],
         # The advanced search form needs JS, so default wait isn't enough.
         "result_formats": ["html"],
         "timeout": timeout_s,

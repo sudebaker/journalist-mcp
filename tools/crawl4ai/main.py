@@ -63,7 +63,7 @@ def _build_payload(
     later without breaking the tool.
     """
     payload: dict[str, Any] = {
-        "url": url,
+        "urls": [url],
         # Crawl4AI returns `result.markdown` / `result.html` regardless, but
         # `result.formats` lets us tell the server what to extract eagerly.
         "result_formats": [output_format],
