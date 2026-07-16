@@ -184,15 +184,40 @@ def render_page(
 def _extract_content(body: dict[str, Any], output_format: str) -> Optional[str]:
     """Pull the requested field out of a Crawl4AI response envelope.
 
-    Crawl4AI returns `{ success, result: { markdown, html, ... } }` on success.
-    Older builds returned the body itself, so we fall back to top-level keys
-    for compatibility.
+    Crawl4AI v0.4+ returns ``{ success, results: [{ markdown: { raw_markdown, … }, html, … }] }``.
+    Older builds returned ``{ result: { markdown, html } }``, so we fall back to
+    top-level keys for compatibility.
     """
+    # v0.4+: results array
+    results = body.get("results")
+    if isinstance(results, list) and results:
+        item = results[0]
+        if output_format == "markdown":
+            # markdown is a dict: { raw_markdown, markdown_with_citations, … }
+            md = item.get("markdown")
+            if isinstance(md, dict):
+                raw = md.get("raw_markdown") or md.get("markdown_with_citations")
+                if raw:
+                    return str(raw)
+            # fallback: top-level markdown key
+            if item.get("markdown") and isinstance(item["markdown"], str):
+                return str(item["markdown"])
+        elif output_format == "html":
+            html = item.get("html") or item.get("cleaned_html")
+            if html:
+                return str(html)
+        # Generic fallback: try the format key directly
+        val = item.get(output_format)
+        if val is not None:
+            return str(val)
+
+    # Legacy: body.result.format
     result = body.get("result") or body
     value = result.get(output_format)
-    if value is None:
-        return None
-    return str(value)
+    if value is not None:
+        return str(value)
+
+    return None
 
 
 def _safe_get(d: dict[str, Any], *keys: str) -> Any:

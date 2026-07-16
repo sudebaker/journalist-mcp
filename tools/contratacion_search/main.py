@@ -294,10 +294,31 @@ def call_crawl4ai(target: str, target_type: str, timeout_s: int) -> tuple[str | 
         err = body.get("error") or body.get("detail") or "Crawl4AI success=false"
         return None, err, None
 
-    # Crawl4AI response envelope: { success, result: { html, ... } }.
-    # Older builds may put the field at the top level; we accept both.
-    result = body.get("result") or {}
-    html_content = result.get("html") or body.get("html")
+    # Crawl4AI v0.4+ response envelope: { success, results: [{ html, markdown, … }] }.
+    # Older builds: { success, result: { html, … } }.
+    # Accept both formats.
+    results = body.get("results")
+    if isinstance(results, list) and results:
+        item = results[0]
+        html_content = item.get("html") or item.get("cleaned_html")
+        crawl_meta = {
+            "crawl4ai_status_code": item.get("status_code") or body.get("status_code"),
+            "crawl4ai_response_bytes": len(resp.content),
+            "crawl4ai_url": CRAWL4AI_URL,
+        }
+        duration = None
+        md = item.get("metadata")
+        if isinstance(md, dict):
+            duration = md.get("duration_ms")
+    else:
+        result = body.get("result") or {}
+        html_content = result.get("html") or body.get("html")
+        crawl_meta = {
+            "crawl4ai_status_code": body.get("status_code"),
+            "crawl4ai_response_bytes": len(resp.content),
+            "crawl4ai_url": CRAWL4AI_URL,
+        }
+        duration = result.get("metadata", {}).get("duration_ms") if isinstance(result, dict) else None
     if not html_content:
         return None, (
             "Crawl4AI response did not include `result.html` — "
@@ -310,16 +331,10 @@ def call_crawl4ai(target: str, target_type: str, timeout_s: int) -> tuple[str | 
             f"({len(html_content)} bytes > {MAX_HTML_BYTES})"
         ), None
 
-    metadata = {
-        "crawl4ai_status_code": body.get("status_code"),
-        "crawl4ai_response_bytes": len(resp.content),
-        "crawl4ai_url": CRAWL4AI_URL,
-    }
-    duration = result.get("metadata", {}).get("duration_ms") if isinstance(result, dict) else None
     if duration is not None:
-        metadata["crawl4ai_duration_ms"] = duration
+        crawl_meta["crawl4ai_duration_ms"] = duration
 
-    return html_content, None, metadata
+    return html_content, None, crawl_meta
 
 
 # ---------------------------------------------------------------------------
