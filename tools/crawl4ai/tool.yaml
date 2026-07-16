@@ -1,0 +1,31 @@
+name: crawl4ai_render
+description: "Render a web page through Crawl4AI — útil para páginas con JavaScript pesado, paywalls o contenido dinámico. Devuelve Markdown por defecto (más limpio para LLMs) o HTML crudo bajo demanda."
+command: python3
+args:
+  - main.py
+timeout: 60s
+input_schema:
+  type: object
+  properties:
+    url:
+      type: string
+      description: "URL a renderizar (debe empezar con http:// o https://)"
+    output_format:
+      type: string
+      default: markdown
+      enum:
+        - markdown
+        - html
+      description: "Formato del contenido devuelto: 'markdown' (limpio, optimizado para LLM) o 'html' (crudo)"
+    selector:
+      type: string
+      description: "Selector CSS opcional para acotar la extracción a un fragmento concreto de la página"
+    wait_for:
+      type: string
+      description: "Selector CSS que debe estar presente antes de dar la página por cargada — útil para SPAs con renderizado asíncrono"
+    timeout_s:
+      type: integer
+      default: 30
+      description: "Timeout en segundos para la llamada a Crawl4AI (default: 30, máx: 300)"
+  required:
+    - url

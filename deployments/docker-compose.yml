@@ -23,7 +23,7 @@ services:
       - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
       - CRAWL4AI_URL=${CRAWL4AI_URL:-http://crawl4ai:11235}
-      - BROWSERLESS_URL=${BROWSERLESS_URL:-http://browserless:3000}
+      - CRAWL4AI_TOKEN=${CRAWL4AI_TOKEN:-}
       - TEXTFLOW_ENDPOINT=${TEXTFLOW_ENDPOINT:-}
       - TEXTFLOW_WEBHOOK_URL=${TEXTFLOW_WEBHOOK_URL:-}
       - TEXTFLOW_WEBHOOK_SECRET=${TEXTFLOW_WEBHOOK_SECRET:-}
@@ -80,15 +80,10 @@ services:
 
   crawl4ai:
     image: unclecode/crawl4ai:latest
-    networks:
-      - backend
-
-  browserless:
-    image: browserless/chrome:latest
     environment:
-      - MAX_CONCURRENT_SESSIONS=5
-      - PREBOOT_CHROME=true
-      - CONNECTION_TIMEOUT=120000
+      # Token used by the MCP server when calling /crawl. Crawl4AI itself
+      # honours CRAWL4AI_TOKEN via its auth middleware.
+      - CRAWL4AI_TOKEN=${CRAWL4AI_TOKEN:-}
     networks:
       - backend
 

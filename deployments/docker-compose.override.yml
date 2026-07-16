@@ -1,0 +1,73 @@
+# journalist-mcp: servicio añadido al stack de mcp-go
+# Se conecta a los servicios existentes (postgres, searxng, crawl4ai, rustfs)
+# sin duplicarlos.
+#
+# Uso: cd ~/src/mcp-go/deployments && docker compose up -d journalist-mcp
+# (docker compose lee automáticamente los ficheros .yml del directorio)
+#
+# NOTA: Este fichero va en el directorio deployments/ de journalist-mcp.
+# Para activarlo, copiar o enlazar en ~/src/mcp-go/deployments/ y ejecutar
+# docker compose up -d journalist-mcp desde ahí.
+
+services:
+  journalist-mcp:
+    build:
+      context: /home/amphora/workspace/journalist-mcp
+      dockerfile: deployments/Dockerfile
+    container_name: journalist-mcp
+    ports:
+      - "8082:8080"
+    environment:
+      BASE_URL: http://localhost:8082
+      DATABASE_URL: ${DATABASE_URL:-postgresql://mcp:***@postgres:5432/knowledge}
+      RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-rustfs:9000}
+      RUSTFS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY_ID}
+      RUSTFS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_ACCESS_KEY}
+      SEARXNG_URL: http://searxng:8080
+      CRAWL4AI_URL: http://crawl4ai:11235
+      CRAWL4AI_TOKEN: ${CRAWL4AI_TOKEN:-crawl4ai-dev-token-abc123def456}
+      TEXTFLOW_ENDPOINT: ${TEXTFLOW_ENDPOINT:-}
+      TEXTFLOW_WEBHOOK_URL: ${TEXTFLOW_WEBHOOK_URL:-}
+      TEXTFLOW_WEBHOOK_SECRET: ${TEXTFLOW_WEBHOOK_SECRET:-}
+      TENANT_ID: ${TENANT_ID:-default}
+      MCP_TOOLSET: osint-es
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - journalist-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mcp-internal
+      - mcp-external
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+volumes:
+  journalist-data:
+    driver: local
+
+networks:
+  mcp-internal:
+    external: true
+    name: deployments_mcp-internal
+  mcp-external:
+    external: true
+    name: deployments_mcp-external
+  mcp-network:
+    external: true
+    name: deployments_mcp-network

@@ -285,15 +285,15 @@ func TestRunAllChecks_WithDependencies(t *testing.T) {
 
 func TestDependencyStatus(t *testing.T) {
 	ds := DependencyStatus{
-		Name:      "browserless",
-		URL:       "browserless:3000",
+		Name:      "crawl4ai",
+		URL:       "crawl4ai:11235",
 		Reachable: true,
 	}
 
-	if ds.Name != "browserless" {
+	if ds.Name != "crawl4ai" {
 		t.Error("Name mismatch")
 	}
-	if ds.URL != "browserless:3000" {
+	if ds.URL != "crawl4ai:11235" {
 		t.Error("URL mismatch")
 	}
 	if !ds.Reachable {
@@ -340,7 +340,7 @@ func TestExtractHostPort(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"http://browserless:3000", "browserless:3000"},
+		{"http://crawl4ai:11235", "crawl4ai:11235"},
 		{"http://searxng:8080", "searxng:8080"},
 		{"https://ollama.example.com:11434", "ollama.example.com:11434"},
 		{"rustfs:9000", "rustfs:9000"},

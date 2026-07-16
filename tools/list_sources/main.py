@@ -28,7 +28,7 @@ SOURCES = [
     {"name": "ted", "description": "TED - Tenders Electronic Daily", "status": "available"},
     {"name": "transparency", "description": "Transparency Portal - Portal de transparencia AGE", "status": "available"},
     {"name": "searxng_search", "description": "SearXNG - Búsqueda web privada", "status": "available"},
-    {"name": "browserless_render", "description": "Browserless - Renderizado de páginas web con Chrome headless", "status": "available"},
+    {"name": "crawl4ai_render", "description": "Crawl4AI - Renderizado de páginas web con anti-bot y extracción de Markdown/HTML", "status": "available"},
 ]
 
 

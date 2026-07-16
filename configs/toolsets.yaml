@@ -19,6 +19,6 @@ toolsets:
       - contratacion_search
       - transparency_fetch
       - searxng_search
-      - browserless_render
+      - crawl4ai_render
       - list_sources
       - journalist_investigate
