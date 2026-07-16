@@ -14,19 +14,23 @@ Solución
 Delega en Crawl4AI (POST http://crawl4ai:11235/crawl), que ya está en el
 stack y trae anti-bot/JS rendering integrado. El flujo:
 
-    1. Navega al buscador:
-        https://contrataciondelestado.es/wps/portal/plataforma/buscadores/busqueda/
-    2. Via ``js_code`` selecciona el botón "Bids" (linkFormularioBusqueda) y
-       hace click para cargar el formulario de búsqueda avanzada.
-    3. Rellena el campo de NIF/CIF u órgano contratante según ``target_type``
-       y envía el formulario.
-    4. Espera (``wait_for``) a que la tabla de resultados esté presente.
-    5. Crawl4AI devuelve el HTML renderizado; lo parseamos con lxml o, en su
-       defecto, con html.parser de la stdlib.
+    1. POST con ``{"urls": [BUSQUEDA_URL], "crawler_config": {...}}`` —
+       el cuerpo sigue el schema de Crawl4AI 0.9.0 (deploy/docker/schemas.py).
+    2. Crawl4AI renderiza el buscador a través de Cloudflare/Akamai y
+       devuelve el HTML en ``results[0].html``.
+    3. parseamos con ElementTree (stdlib), clasificando cabeceras en
+       columnas canónicas (expediente, órgano, tipo, importe, etc.).
 
-El HTML de la tabla de resultados es estable: cada fila contiene el
-expediente, el órgano contratante, el tipo, el importe y un enlace al
-detalle. El parser extrae esos campos y devuelve un registro por fila.
+Limitación importante (Crawl4AI 0.9.0):
+El campo ``js_code`` está explícitamente prohibido para clientes no
+confiables (UNTRUSTED_FORBIDDEN_FIELDS en crawl4ai/async_configs.py)
+porque sería una superficie de RCE. Eso significa que no podemos
+rellenar ni enviar el formulario JSF/Dojo desde el lado del cliente.
+Este tool renderiza la página de búsqueda (formulario) y, en el
+futuro, apuntará a una URL de resultados estática cuando esté
+disponible. Hoy devuelve la lista de licitaciones vacía y deja un
+mensaje en ``metadata`` — ver ``render_markdown`` y la respuesta de
+``search_contratacion``.
 
 Contrato
 --------
@@ -39,10 +43,10 @@ Sources
 -------
 * Plataforma de Contratación del Sector Público:
     https://contrataciondelestado.es
-* Crawl4AI /crawl endpoint:
-    https://docs.crawl4ai.com/api/parameters/
-* Crawl4AI page interaction (js_code, wait_for):
-    https://docs.crawl4ai.com/core/page-interaction/
+* Crawl4AI 0.9.0 /crawl endpoint:
+    https://github.com/unclecode/crawl4ai/blob/main/deploy/docker/schemas.py
+* Crawl4AI trusted/untrusted field policy:
+    https://github.com/unclecode/crawl4ai/blob/main/crawl4ai/async_configs.py
 """
 import html
 import json
@@ -142,109 +146,68 @@ def write_response(data: dict[str, Any]) -> None:
 def _build_headers() -> dict[str, str]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if CRAWL4AI_TOKEN:
-        # Crawl4AI accepts both Bearer (v0.4+) and the legacy X-Crawl4AI-Token.
-        # Source: tools/crawl4ai/main.py (already in this project).
+        # Crawl4AI v0.4+ accepts Bearer; v0.9+ also accepts the legacy header
+        # for self-hosted deployments. Both are sent for compatibility.
         headers["Authorization"] = f"Bearer {CRAWL4AI_TOKEN}"
         headers["X-Crawl4AI-Token"] = CRAWL4AI_TOKEN
     return headers
 
 
-def _build_js_code(target: str, target_type: str) -> str:
-    """Build a JS snippet that, when executed on the busqueda page, opens
-    the Bids form, fills the target field, and submits.
+def _build_crawler_config(timeout_s: int) -> dict[str, Any]:
+    """Build the `crawler_config` block for Crawl4AI's /crawl endpoint.
 
-    The script is intentionally defensive — it probes several selectors,
-    stops on the first one that works, and returns a JSON status blob that
-    Crawl4AI keeps in its logs.
+    Crawl4AI 0.9.0 schema (deploy/docker/schemas.py, async_configs.py):
 
-    Escaping: we keep the target as a JavaScript string literal with both
-    JSON escaping and backslash-escaped quotes. The string never includes
-    user-controlled JS — the caller's target is data, not code.
+        {
+          "urls":            list[str],       # required, top-level
+          "browser_config":  dict | None,
+          "crawler_config":  dict | None,     # <- this is where js_code, wait_for live
+        }
+
+    IMPORTANT: js_code and js_code_before_wait are explicitly **forbidden for
+    untrusted callers** in v0.9.0 (UNTRUSTED_FORBIDDEN_FIELDS in
+    async_configs.py) — they raise 400 with the message
+    "field 'js_code' is not permitted on CrawlerRunConfig from an untrusted
+    request". This is a security hardening against the RCE surface that
+    arbitrary JS execution would otherwise expose. The tool is therefore
+    limited to the allowlist: wait_for, delay_before_return_html, css_selector
+    and friends — no form interaction.
+
+    Implication: this tool can render the search form but cannot drive the
+    JSF/Dojo submit. The busqueda page is a stateful form (myfaces.oam.submitForm)
+    that requires either a trusted client with c4a_script, or a non-JS results
+    URL we can point Crawl4AI at. For the busqueda page in particular, the
+    caller receives the form HTML — not a results table. We surface this in
+    the response so the caller knows the search did not actually run.
     """
-    # JSON-encode the target so quotes/newlines become \", \\, etc.
-    # (JSON is a subset of JS for this purpose.)
-    safe_target = json.dumps(target)
-    sel_bids = SEL_BIDS_LINK
-    sel_button = SEL_BUSCAR_BUTTON
-    field_selectors = ",\n        ".join(FIELD_SELECTORS)
-    return f"""
-(async () => {{
-  function pickField() {{
-    const sels = [
-        {field_selectors}
-    ];
-    for (const sel of sels) {{
-      const el = document.querySelector(sel);
-      if (el && el.offsetParent !== null) {{
-        return el;
-      }}
-    }}
-    // Fallback: first visible text-like input on the page.
-    const inputs = Array.from(document.querySelectorAll('input'));
-    return inputs.find((i) =>
-      (i.type === 'text' || i.type === 'search' || !i.type) &&
-      i.offsetParent !== null
-    ) || null;
-  }}
-
-  // Step 1: open the "Bids" form (avanzada).
-  const bids = document.querySelector("{sel_bids}");
-  if (bids) {{
-    bids.click();
-    // Give the SPA a moment to mount the new form.
-    await new Promise(r => setTimeout(r, 1500));
-  }}
-
-  // Step 2: pick the appropriate field, fill it, submit.
-  const field = pickField();
-  if (!field) {{
-    return JSON.stringify({{status: "field_not_found"}});
-  }}
-  try {{
-    field.focus();
-    field.value = {safe_target};
-    field.dispatchEvent(new Event('input', {{bubbles: true}}));
-    field.dispatchEvent(new Event('change', {{bubbles: true}}));
-  }} catch (e) {{
-    return JSON.stringify({{status: "fill_error", error: String(e)}});
-  }}
-
-  // Step 3: click the Buscar button.
-  const btn = document.querySelector("{sel_button}");
-  if (btn) {{
-    btn.click();
-  }} else {{
-    // Fallback: submit the closest form.
-    const form = field.closest('form');
-    if (form) {{
-      form.submit();
-    }} else {{
-      return JSON.stringify({{status: "no_submit_target"}});
-    }}
-  }}
-  return JSON.stringify({{status: "submitted", target_type: "{target_type}"}});
-}})();
-""".strip()
+    return {
+        # The form is heavy (Dojo + WCM); give it a generous render budget.
+        "delay_before_return_html": min(max(5, timeout_s // 2), 15),
+        # Wait for the form to mount — we have no results table to wait for
+        # because the JS-driven submit is blocked by the untrusted-client
+        # policy (see comment above). Falls back to the body once mounted.
+        "wait_for": "css:form, css:body",
+        # Cap attacker-influenced quantities to safe values.
+        "page_timeout": timeout_s * 1000,
+    }
 
 
 def _build_payload(target: str, target_type: str, timeout_s: int) -> dict[str, Any]:
-    """Build the JSON body for Crawl4AI's /crawl endpoint.
+    """Build the JSON body for Crawl4AI 0.9.0's /crawl endpoint.
 
-    Source: https://docs.crawl4ai.com/api/parameters/ — the schema accepts
-    `js_code` (str | list[str]) and `wait_for` (CSS selector) to drive
-    page interaction; the rendered HTML is returned under
-    ``result.html`` (or ``result.markdown`` if requested).
+    Source: deploy/docker/schemas.py::CrawlRequest. The top-level fields are
+    `urls` (list), `browser_config` and `crawler_config`. Per-URL knobs
+    like `js_code` and `wait_for` live under `crawler_config`.
     """
+    # `target`/`target_type` are kept in the args so that, once a
+    # future Crawl4AI release (or a trusted deploy) lifts the js_code
+    # restriction, this tool can re-enable the form-fill JS without
+    # changing the call signature.
     return {
         "urls": [BUSQUEDA_URL],
-        # The advanced search form needs JS, so default wait isn't enough.
+        "crawler_config": _build_crawler_config(timeout_s),
         "result_formats": ["html"],
         "timeout": timeout_s,
-        "js_code": _build_js_code(target, target_type),
-        # The form is heavy (Dojo + WCM); give it a generous render budget.
-        "delay_before_return_html": 5,
-        # Wait for any of the result-table selectors to appear.
-        "wait_for": WAIT_FOR,
     }
 
 

@@ -110,23 +110,49 @@ class ArgParsingTests(unittest.TestCase):
         self.assertEqual(target_type, "nif")
 
 
-class JsPayloadTests(unittest.TestCase):
-    def test_js_target_is_json_escaped(self):
-        # A target that would break a naive string concatenation: contains
-        # both a quote and a backslash. The result MUST keep these literal
-        # at the JS layer — i.e. it must be JSON-encoded.
-        nasty = 'a"b\\c</script>'
-        js = tool._build_js_code(nasty, "name")
-        # JSON-encode round-trip: parsing the JS-side literal reproduces
-        # the original.
-        self.assertIn(json.dumps(nasty), js)
-        self.assertIn("submitted", js)
-        self.assertIn("pickField", js)
-        self.assertIn("linkFormularioBusqueda", js)
+class CrawlerConfigTests(unittest.TestCase):
+    """The Crawl4AI 0.9.0 /crawl endpoint puts per-URL knobs (wait_for,
+    delay_before_return_html, etc.) under a `crawler_config` block and
+    forbids js_code/js_code_before_wait for untrusted callers. These
+    tests pin the contract the tool sends."""
 
-    def test_js_target_uses_target_type(self):
-        js = tool._build_js_code("B12345678", "cif")
-        self.assertIn('"cif"', js)
+    def test_crawler_config_blocks_have_only_allowed_keys(self):
+        cfg = tool._build_crawler_config(30)
+        # The allowlist of safe knobs we know we set.
+        self.assertIn("wait_for", cfg)
+        self.assertIn("delay_before_return_html", cfg)
+        self.assertIn("page_timeout", cfg)
+        # js_code / js_code_before_wait MUST NEVER be set — the server
+        # rejects them with 400 for untrusted clients.
+        self.assertNotIn("js_code", cfg)
+        self.assertNotIn("js_code_before_wait", cfg)
+
+    def test_crawler_config_clamped_to_safe_bounds(self):
+        # delay is a hard cap so it stays under 15s even if the caller
+        # asks for 1000s — the form is heavy and Crawl4AI's clamps are tight.
+        cfg = tool._build_crawler_config(1000)
+        self.assertLessEqual(cfg["delay_before_return_html"], 15)
+        # page_timeout is the page-load cap in ms — it scales with the
+        # caller's timeout_s but should never exceed a sane upper bound.
+        self.assertEqual(cfg["page_timeout"], 1000 * 1000)
+        self.assertLessEqual(cfg["page_timeout"], 60 * 60 * 1000)  # sanity check
+
+    def test_payload_shape(self):
+        payload = tool._build_payload("B12345678", "cif", 30)
+        # Top-level shape: list of URLs + crawler_config block.
+        self.assertIn("urls", payload)
+        self.assertEqual(payload["urls"], [tool.BUSQUEDA_URL])
+        self.assertIn("crawler_config", payload)
+        self.assertIsInstance(payload["crawler_config"], dict)
+        self.assertEqual(payload["timeout"], 30)
+        # Legacy 'url' key MUST NOT be present — it confuses the server
+        # into a 422 about a missing `urls` field.
+        self.assertNotIn("url", payload)
+        # js_code at the top level would also 422, and is forbidden
+        # inside crawler_config too.
+        self.assertNotIn("js_code", payload)
+        # The wait_for selector must be a non-empty CSS selector string.
+        self.assertTrue(payload["crawler_config"]["wait_for"].strip())
 
 
 class ParseResultsTests(unittest.TestCase):
@@ -164,20 +190,6 @@ class ParseResultsTests(unittest.TestCase):
         self.assertIsNone(tool._parse_amount(""))
         self.assertIsNone(tool._parse_amount("no digits"))
 
-
-class CrawlPayloadTests(unittest.TestCase):
-    def test_payload_shape(self):
-        payload = tool._build_payload("B12345678", "cif", 30)
-        self.assertIn("url", payload)
-        self.assertEqual(payload["url"], tool.BUSQUEDA_URL)
-        self.assertIn(payload["result_formats"], [["html"]])
-        self.assertEqual(payload["timeout"], 30)
-        self.assertIn("js_code", payload)
-        self.assertIn("wait_for", payload)
-        # The JS payload must reference the literal target so the form fills.
-        self.assertIn("B12345678", payload["js_code"])
-        # The wait_for selector must be a non-empty CSS selector string.
-        self.assertTrue(payload["wait_for"].strip())
 
 
 class MarkdownRenderTests(unittest.TestCase):
