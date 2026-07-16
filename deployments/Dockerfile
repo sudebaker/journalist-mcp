@@ -14,11 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # WeasyPrint (PDF generation)
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-0 \
     libffi-dev \
     shared-mime-info \
     # For OpenCV / image tools
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
