@@ -1,91 +1,63 @@
 toolsets:
-  osint-es:
-    description: "OSINT en fuentes abiertas españolas y europeas"
-    tools:
-      - boe_fetch
-      - borme_fetch
-      - bdns_fetch
-      - ckan_fetch
-      - cohesion_fetch
-      - contratacion_fetch
-      - datosgob_fetch
-      - fts_fetch
-      - pscp_fetch
-      - ted_fetch
-      - ted_search
-      - borme_search
-      - boe_search
-      - bdns_search
-      - contratacion_search
-      - transparency_fetch
-      - searxng_search
-      - crawl4ai_render
-      - browser_scraper
-      - web_scraper
-      - list_sources
-      - journalist_investigate
-      - datetime
-      - echo
-      - rustfs_storage
-
   ocu-investigacion:
-    description: "Herramientas forenses y de investigación para la OCU"
+    description: "Herramientas forenses y de investigación para la OCU (22 tools)"
     tools:
       # OSINT español
+      - journalist_investigate
       - boe_fetch
+      - boe_search
       - borme_fetch
+      - borme_search
       - bdns_fetch
-      - ckan_fetch
-      - cohesion_fetch
+      - bdns_search
       - contratacion_fetch
-      - datosgob_fetch
-      - fts_fetch
-      - pscp_fetch
+      - contratacion_search
       - ted_fetch
       - ted_search
-      - borme_search
-      - boe_search
-      - bdns_search
-      - contratacion_search
       - transparency_fetch
+      # Scraping y búsqueda
       - searxng_search
       - crawl4ai_render
       - browser_scraper
-      - web_scraper
-      - list_sources
-      - journalist_investigate
-      # Base
-      - datetime
-      - echo
-      - rustfs_storage
-      - transcribe
-      - pdf_reports
-      - generate_report
       # Forenses OCu
       - memgraph_query
       - opensearch_query
+      - cross_reference
+      - timeline_generator
       - audit_log
       - case_evidence
       - forensic_ingest
-      - cross_reference
-      - timeline_generator
-      - communication_graph
-      - financial_flow
-      - entity_resolution
-      - metadata_extractor
-      - stego_detector
-      - document_fingerprint
-      - geolocation_mapper
+      # Utilidades
+      - datetime
+      - rustfs_storage
+
+  osint-es:
+    description: "OSINT en fuentes abiertas españolas y europeas"
+    tools:
+      - journalist_investigate
+      - boe_fetch
+      - boe_search
+      - borme_fetch
+      - borme_search
+      - bdns_fetch
+      - bdns_search
+      - contratacion_fetch
+      - contratacion_search
+      - ted_fetch
+      - ted_search
+      - transparency_fetch
+      - searxng_search
+      - crawl4ai_render
+      - browser_scraper
+      - datetime
+      - rustfs_storage
 
   default:
     description: "Herramientas generales"
     tools:
-      - datetime
-      - echo
       - searxng_search
-      - browser_scraper
-      - web_scraper
       - crawl4ai_render
+      - browser_scraper
+      - datetime
       - rustfs_storage
-      - pdf_reports
-      - transcribe
+      - echo
