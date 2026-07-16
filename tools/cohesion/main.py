@@ -288,7 +288,7 @@ def main() -> None:
             write_response({
                 "success": False, "request_id": request_id,
                 "error": {
-                    "code": "CONFLICTING_INPUT",
+                    "code": "INVALID_INPUT",
                     "message": "Use either 'date' or 'from'+'to', not both",
                 },
             })
@@ -297,7 +297,7 @@ def main() -> None:
             write_response({
                 "success": False, "request_id": request_id,
                 "error": {
-                    "code": "MISSING_RANGE_ENDPOINT",
+                    "code": "MISSING_RANGE",
                     "message": "'from' and 'to' must be provided together",
                 },
             })

@@ -3,3 +3,10 @@ bin/
 *.test
 .env
 /server
+
+# Cached bulk downloads from data sources. These are large (100MB+ for
+# the EU Transparency Register) and regenerated on demand; they should
+# never be committed.
+**/__pycache__/
+**/*.pyc
+**/transparency_register*.xml

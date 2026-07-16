@@ -1,15 +1,15 @@
 name: borme_fetch
-description: "Fetch BORME (Boletín Oficial del Registro Mercantil) — actos mercantiles, nombramientos y ceses"
-command: /app/bin/borme-agent
+description: "Fetch BORME (Boletín Oficial del Registro Mercantil) — sumario diario con actos mercantiles, nombramientos, ceses y otros actos inscritos. Fuente oficial del Estado español."
+command: python3
 args:
-  - "--mcp"
+  - main.py
 timeout: 300s
 input_schema:
   type: object
   properties:
     date:
       type: string
-      description: "Fecha específica (YYYY-MM-DD). Si no se especifica, usa hoy."
+      description: "Fecha específica (YYYY-MM-DD). Si no se especifica ni 'from'+'to', usa hoy."
     from:
       type: string
       description: "Inicio de rango histórico (YYYY-MM-DD). Requiere 'to'."
@@ -18,7 +18,9 @@ input_schema:
       description: "Fin de rango histórico (YYYY-MM-DD). Requiere 'from'."
     workers:
       type: integer
-      description: "Número de workers para fetch histórico (default: 4)"
+      default: 4
+      description: "Número de workers concurrentes para fetch histórico (default: 4, max: 16)."
     rate_limit:
       type: integer
-      description: "Límite de requests por minuto (default: config)"
+      default: 30
+      description: "Límite de requests por minuto aplicado client-side (default: 30)."
