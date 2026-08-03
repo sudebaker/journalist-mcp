@@ -1,5 +1,5 @@
 name: bdns_search
-description: "Busca subvenciones en BDNS (Base de Datos Nacional de Subvenciones) por beneficiario (NIF/nombre). Requiere scraping del formulario web."
+description: "Busca concesiones/suvenciones en BDNS (Base de Datos Nacional de Subvenciones / SNPSAP) por beneficiario NIF/CIF o nombre, en un rango de fechas. Usa la API REST pública del Ministerio de Hacienda."
 command: python3
 args:
   - main.py
@@ -9,11 +9,21 @@ input_schema:
   properties:
     target:
       type: string
-      description: "NIF/CIF o nombre del beneficiario"
+      description: "NIF/CIF (target_type nif/cif) o nombre/beneficiario (target_type name)"
     target_type:
       type: string
       enum: [nif, cif, name]
       default: nif
       description: "Tipo de identificador"
+    date_from:
+      type: string
+      description: "Inicio del rango de fecha de concesión (YYYY-MM-DD). Default: ~5 años atrás."
+    date_to:
+      type: string
+      description: "Fin del rango de fecha de concesión (YYYY-MM-DD). Default: hoy."
+    count:
+      type: integer
+      description: "Número máximo de resultados a devolver. Default: 10."
+      default: 10
   required:
     - target
