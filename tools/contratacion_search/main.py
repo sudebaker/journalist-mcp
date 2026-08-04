@@ -1,653 +1,465 @@
 #!/usr/bin/env python3
-"""contratacion_search — Buscar licitaciones en la Plataforma de Contratación del Sector Público.
+"""PLACSP (contrataciondelsectorpublico.gob.es) search tool.
 
-Problema
---------
-contrataciondelestado.es está protegida por un WAF (IBM DataPower + Akamai) y
-descarga de Atom feed por NIF/CIF de adjudicatario no existe. La única vía
-pública es el buscador web de la Plataforma, que es una SPA de WebSphere
-Portal (Dojo + JSF) — necesita un navegador headless para cargar los
-formularios y obtener los resultados.
+Busca licitaciones/contratos publicados en la Plataforma de Contratación del
+Sector Público usando el feed ATOM (CODICE) en vivo para rangos <= 90 días y
+descargas ZIP anuales para rangos mayores.
 
-Solución
---------
-Delega en Crawl4AI (POST http://crawl4ai:11235/crawl), que ya está en el
-stack y trae anti-bot/JS rendering integrado. El flujo:
+Estrategia híbrida:
+  - <= 90 días  -> feed ATOM live, siguiendo paginacion rel="next" (max 20 paginas)
+  - > 90 días   -> ZIP anuales {base}_{YYYY}.zip, se extraen y parsean los *.atom
 
-    1. POST con ``{"urls": [BUSQUEDA_URL], "crawler_config": {...}}`` —
-       el cuerpo sigue el schema de Crawl4AI 0.9.0 (deploy/docker/schemas.py).
-    2. Crawl4AI renderiza el buscador a través de Cloudflare/Akamai y
-       devuelve el HTML en ``results[0].html``.
-    3. parseamos con ElementTree (stdlib), clasificando cabeceras en
-       columnas canónicas (expediente, órgano, tipo, importe, etc.).
+Estructura CODICE (verificada en runtime):
+  feed atom:entry -> cac-place-ext:ContractFolderStatus
+    cbc:ContractFolderID                         -> id_licitacion
+    cbc-place-ext:ContractFolderStatusCode       -> estado (PUB/RES/EV/ADJ/PRE)
+    cac-place-ext:LocatedContractingParty/cac:Party/cac:PartyName/cbc:Name -> organo
+    cac-place-ext:LocatedContractingParty/cac:Party/cbc:PartyIdentification/cbc:ID[@schemeName=NIF]
+    cac:WinningParty/cac:PartyName/cbc:Name      -> adjudicatario
+    cac:WinningParty/cbc:PartyIdentification/cbc:ID[@schemeName=NIF] -> nif adjudicatario
+    cac:ProcurementProject/cac:BudgetAmount/cbc:EstimatedOverallContractAmount -> importe
 
-Limitación importante (Crawl4AI 0.9.0):
-El campo ``js_code`` está explícitamente prohibido para clientes no
-confiables (UNTRUSTED_FORBIDDEN_FIELDS en crawl4ai/async_configs.py)
-porque sería una superficie de RCE. Eso significa que no podemos
-rellenar ni enviar el formulario JSF/Dojo desde el lado del cliente.
-Este tool renderiza la página de búsqueda (formulario) y, en el
-futuro, apuntará a una URL de resultados estática cuando esté
-disponible. Hoy devuelve la lista de licitaciones vacía y deja un
-mensaje en ``metadata`` — ver ``render_markdown`` y la respuesta de
-``search_contratacion``.
-
-Contrato
---------
-Igual que el resto de tools/*:
-    stdin  → {"request_id": "...", "arguments": {target, target_type, count, timeout_s}}
-    stdout → SubprocessResponse JSON con ``content`` (markdown) y
-            ``structured_content`` (records + meta).
-
-Sources
--------
-* Plataforma de Contratación del Sector Público:
-    https://contrataciondelestado.es
-* Crawl4AI 0.9.0 /crawl endpoint:
-    https://github.com/unclecode/crawl4ai/blob/main/deploy/docker/schemas.py
-* Crawl4AI trusted/untrusted field policy:
-    https://github.com/unclecode/crawl4ai/blob/main/crawl4ai/async_configs.py
+No hay WAF ni CAPTCHA: el feed devuelve XML limpio (verificado por curl).
 """
-import html
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta, timezone
 from typing import Any
-from xml.etree import ElementTree as ET
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
+from common.http import request_with_retry, REQUESTS_AVAILABLE
+from common.evidence import build_evidence
+from common.entity_normalizer import normalize_for_match
 
 logger = get_logger(__name__, "contratacion_search")
 
-try:
-    import requests as _requests  # type: ignore
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    _requests = None  # type: ignore[assignment]
-    REQUESTS_AVAILABLE = False
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-
-CRAWL4AI_URL = (
-    os.environ.get("CRAWL4AI_URL", "http://crawl4ai:11235").strip().rstrip("/")
+LIVE_FEED = (
+    "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+    "sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom"
 )
-CRAWL4AI_TOKEN = os.environ.get("CRAWL4AI_TOKEN", "").strip()
-
-CONTRATACION_URL = "https://contrataciondelestado.es"
-BUSQUEDA_URL = (
-    "https://contrataciondelestado.es/wps/portal/plataforma/buscadores/busqueda/"
+ZIP_BASE = (
+    "https://contrataciondelsectorpublico.gob.es/sindicacion/"
+    "sindicacion_643/licitacionesPerfilesContratanteCompleto3"
 )
+SOURCE = "CONTRATACION"
+DEFAULT_LOOKBACK_DAYS = 30
+DEFAULT_COUNT = 20
+MAX_LIVE_PAGES = int(os.environ.get("CONTRATACION_MAX_PAGES", "20"))
+MAX_ZIP_YEARS = int(os.environ.get("CONTRATACION_MAX_ZIP_YEARS", "5"))
+FEED_TIMEOUT = 60
+ZIP_TIMEOUT = 60
+ZIP_CHUNK_SIZE = 1024 * 256
 
-DEFAULT_TIMEOUT_S = 90
-DEFAULT_COUNT = 25
-MAX_COUNT = 200
-MIN_TIMEOUT_S = 30
-MAX_TIMEOUT_S = 180
-
-# Long but bounded — a search results page can be 200-500 KB of HTML.
-MAX_HTML_BYTES = 4 * 1024 * 1024
-
-VALID_TARGET_TYPES = ("nif", "cif", "name")
-
-# CSS selectors used in the search form. The form is JSF-generated so the
-# IDs contain the long namespace prefix — selectors match by suffix to stay
-# robust against minor prefix changes.
-SEL_BIDS_LINK = (
-    "a[id$='linkFormularioBusqueda']"
-)
-# Field selectors — each ``input`` whose id ends with one of these suffixes
-# is a candidate text field on the advanced search form. The exact suffix
-# changes between releases, so we keep a small allowlist and fall back to
-# ``input[type='text']`` if nothing matches.
-FIELD_SELECTORS = (
-    "[id$='nifAdjudicatario']",
-    "[id$='cifAdjudicatario']",
-    "[id$='nif']",
-    "[id$='cif']",
-    "[id$='texto']",
-    "[id$='descripcion']",
-    "input[type='text']",
-    "input[type='search']",
-)
-SEL_BUSCAR_BUTTON = (
-    "input[id$='btnBuscar'],"
-    "input[id$='buttonBuscar'],"
-    "input[id$='buscar'],"
-    "button[id$='btnBuscar'],"
-    "button[id$='buttonBuscar']"
-)
-# Wait for any of these to appear on the result page.
-WAIT_FOR = (
-    "table[id$='tablaLicitaciones'],"
-    "table[id*='resultado'],"
-    "table[id*='Licitacion'],"
-    "div[id*='tablaResultados'],"
-    "table.licitaciones,"
-    ".tablaResultados"
-)
-
-
-# ---------------------------------------------------------------------------
-# I/O
-# ---------------------------------------------------------------------------
-
-def write_response(data: dict[str, Any]) -> None:
-    print(json.dumps(data, default=str, ensure_ascii=False), flush=True)
-
-
-# ---------------------------------------------------------------------------
-# Crawl4AI plumbing
-# ---------------------------------------------------------------------------
-
-def _build_headers() -> dict[str, str]:
-    headers: dict[str, str] = {"Content-Type": "application/json"}
-    if CRAWL4AI_TOKEN:
-        # Crawl4AI v0.4+ accepts Bearer; v0.9+ also accepts the legacy header
-        # for self-hosted deployments. Both are sent for compatibility.
-        headers["Authorization"] = f"Bearer {CRAWL4AI_TOKEN}"
-        headers["X-Crawl4AI-Token"] = CRAWL4AI_TOKEN
-    return headers
-
-
-def _build_crawler_config(timeout_s: int) -> dict[str, Any]:
-    """Build the `crawler_config` block for Crawl4AI's /crawl endpoint.
-
-    Crawl4AI 0.9.0 schema (deploy/docker/schemas.py, async_configs.py):
-
-        {
-          "urls":            list[str],       # required, top-level
-          "browser_config":  dict | None,
-          "crawler_config":  dict | None,     # <- this is where js_code, wait_for live
-        }
-
-    IMPORTANT: js_code and js_code_before_wait are explicitly **forbidden for
-    untrusted callers** in v0.9.0 (UNTRUSTED_FORBIDDEN_FIELDS in
-    async_configs.py) — they raise 400 with the message
-    "field 'js_code' is not permitted on CrawlerRunConfig from an untrusted
-    request". This is a security hardening against the RCE surface that
-    arbitrary JS execution would otherwise expose. The tool is therefore
-    limited to the allowlist: wait_for, delay_before_return_html, css_selector
-    and friends — no form interaction.
-
-    Implication: this tool can render the search form but cannot drive the
-    JSF/Dojo submit. The busqueda page is a stateful form (myfaces.oam.submitForm)
-    that requires either a trusted client with c4a_script, or a non-JS results
-    URL we can point Crawl4AI at. For the busqueda page in particular, the
-    caller receives the form HTML — not a results table. We surface this in
-    the response so the caller knows the search did not actually run.
-    """
-    return {
-        # The form is heavy (Dojo + WCM); give it a generous render budget.
-        "delay_before_return_html": min(max(5, timeout_s // 2), 15),
-        # Wait for the form to mount — we have no results table to wait for
-        # because the JS-driven submit is blocked by the untrusted-client
-        # policy (see comment above). Falls back to the body once mounted.
-        "wait_for": "css:form, css:body",
-        # Cap attacker-influenced quantities to safe values.
-        "page_timeout": timeout_s * 1000,
-    }
-
-
-def _build_payload(target: str, target_type: str, timeout_s: int) -> dict[str, Any]:
-    """Build the JSON body for Crawl4AI 0.9.0's /crawl endpoint.
-
-    Source: deploy/docker/schemas.py::CrawlRequest. The top-level fields are
-    `urls` (list), `browser_config` and `crawler_config`. Per-URL knobs
-    like `js_code` and `wait_for` live under `crawler_config`.
-    """
-    # `target`/`target_type` are kept in the args so that, once a
-    # future Crawl4AI release (or a trusted deploy) lifts the js_code
-    # restriction, this tool can re-enable the form-fill JS without
-    # changing the call signature.
-    return {
-        "urls": [BUSQUEDA_URL],
-        "crawler_config": _build_crawler_config(timeout_s),
-        "result_formats": ["html"],
-        "timeout": timeout_s,
-    }
-
-
-def call_crawl4ai(target: str, target_type: str, timeout_s: int) -> tuple[str | None, str | None, dict[str, Any] | None]:
-    """POST to Crawl4AI and return (html, error, metadata)."""
-    if not REQUESTS_AVAILABLE:
-        return None, "requests library not available", None
-    if not CRAWL4AI_URL:
-        return None, "CRAWL4AI_URL is not set", None
-
-    payload = _build_payload(target, target_type, timeout_s)
-    headers = _build_headers()
-
-    try:
-        resp = _requests.post(  # type: ignore[union-attr]
-            f"{CRAWL4AI_URL}/crawl",
-            json=payload,
-            headers=headers,
-            timeout=timeout_s + 15,
-        )
-    except _requests.exceptions.Timeout:  # type: ignore[union-attr]
-        return None, f"Crawl4AI timed out after {timeout_s}s", None
-    except _requests.exceptions.ConnectionError as exc:  # type: ignore[union-attr]
-        return None, f"Cannot reach Crawl4AI at {CRAWL4AI_URL}: {exc}", None
-    except Exception as exc:  # pragma: no cover - defensive
-        return None, f"Crawl4AI request failed: {exc}", None
-
-    if resp.status_code in (401, 403):
-        return None, (
-            f"Crawl4AI rejected the request (HTTP {resp.status_code}) — "
-            "check CRAWL4AI_TOKEN"
-        ), None
-
-    if resp.status_code != 200:
-        try:
-            detail = resp.json().get("detail")
-        except Exception:
-            detail = None
-        return None, detail or f"Crawl4AI returned HTTP {resp.status_code}", None
-
-    try:
-        body = resp.json()
-    except ValueError as exc:
-        return None, f"Crawl4AI returned non-JSON response: {exc}", None
-
-    if not body.get("success", False):
-        err = body.get("error") or body.get("detail") or "Crawl4AI success=false"
-        return None, err, None
-
-    # Crawl4AI v0.4+ response envelope: { success, results: [{ html, markdown, … }] }.
-    # Older builds: { success, result: { html, … } }.
-    # Accept both formats.
-    results = body.get("results")
-    if isinstance(results, list) and results:
-        item = results[0]
-        html_content = item.get("html") or item.get("cleaned_html")
-        crawl_meta = {
-            "crawl4ai_status_code": item.get("status_code") or body.get("status_code"),
-            "crawl4ai_response_bytes": len(resp.content),
-            "crawl4ai_url": CRAWL4AI_URL,
-        }
-        duration = None
-        md = item.get("metadata")
-        if isinstance(md, dict):
-            duration = md.get("duration_ms")
-    else:
-        result = body.get("result") or {}
-        html_content = result.get("html") or body.get("html")
-        crawl_meta = {
-            "crawl4ai_status_code": body.get("status_code"),
-            "crawl4ai_response_bytes": len(resp.content),
-            "crawl4ai_url": CRAWL4AI_URL,
-        }
-        duration = result.get("metadata", {}).get("duration_ms") if isinstance(result, dict) else None
-    if not html_content:
-        return None, (
-            "Crawl4AI response did not include `result.html` — "
-            "the search form may have failed to render"
-        ), None
-
-    if len(html_content) > MAX_HTML_BYTES:
-        return None, (
-            f"Crawl4AI returned an unexpectedly large HTML payload "
-            f"({len(html_content)} bytes > {MAX_HTML_BYTES})"
-        ), None
-
-    if duration is not None:
-        crawl_meta["crawl4ai_duration_ms"] = duration
-
-    return html_content, None, crawl_meta
-
-
-# ---------------------------------------------------------------------------
-# HTML parsing — tolerant of small page changes
-# ---------------------------------------------------------------------------
-
-# The result table columns we try to extract, in display order. The header
-# labels on the live site (es) are roughly: Expediente, Órgano, Tipo, Importe,
-# Fecha, Estado. We match by header text, falling back to position.
-COLUMN_HINTS = {
-    "expediente": ("expediente", "id expediente", "identificador", "nº expediente"),
-    "organo": ("órgano de contratación", "órgano contratante", "organo contratante", "órgano"),
-    "tipo": ("tipo de contrato", "tipo"),
-    "procedimiento": ("procedimiento",),
-    "importe": ("importe", "presupuesto", "valor estimado"),
-    "estado": ("estado",),
-    "fecha": ("fecha",),
-    "ubicacion": ("ubicación", "lugar"),
+NS = {
+    "atom": "http://www.w3.org/2005/Atom",
+    "cbc": "urn:dgpe:names:draft:codice:schema:xsd:CommonBasicComponents-2",
+    "cac": "urn:dgpe:names:draft:codice:schema:xsd:CommonAggregateComponents-2",
+    "cac-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonAggregateComponents-2",
+    "cbc-place-ext": "urn:dgpe:names:draft:codice-place-ext:schema:xsd:CommonBasicComponents-2",
 }
 
-# Stable fragments that mark a row as a real result row, not a header.
-ROW_MARKERS = ("expediente", "licitacion", "licitación", "contrato", "convocatoria")
-# Also accept rows whose first non-empty text token looks like an
-# expediente identifier (EXP-, PASA-, CON-, LIC-, etc.). The token check
-# uses \S+ which matches until the next whitespace — robust against the
-# longer descriptive text in the same row.
-EXPEDIENTE_PREFIX = re.compile(r"^(EXP|PASA|CON|LIC|PNSP|ECOM|JAR|CD|OBRA|SERV|SUM)\b", re.IGNORECASE)
+
+def _parse_date(value: str) -> datetime.date | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
 
 
-def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip().lower())
+def _default_window(
+    date_from: str, date_to: str
+) -> tuple[datetime.date, datetime.date]:
+    today = datetime.now().date()
+    desde = _parse_date(date_from) or (today - timedelta(days=DEFAULT_LOOKBACK_DAYS))
+    hasta = _parse_date(date_to) or today
+    if hasta < desde:
+        hasta = today
+    return desde, hasta
 
 
-def _classify_header(text: str) -> str | None:
-    t = _norm(text)
-    for canonical, hints in COLUMN_HINTS.items():
-        for hint in hints:
-            if hint in t:
-                return canonical
-    return None
+def _entry_matches(
+    data: dict, target: str, target_type: str
+) -> bool:
+    """Filtra un entry parseado por target.
 
-
-def _is_result_row(row: ET.Element) -> bool:
-    """Heuristic: a real result row links to an expediente detail page or
-    starts with an expediente-style identifier (``EXP-...``, ``PASA-...``,
-    etc.). The marker words are kept as a fallback for sites that label
-    rows differently.
+    nif/cif: comparación exacta en mayúsculas contra cualquiera de los NIF del
+    entry (adjudicatario u órgano). Si el entry no tiene NIF -> se descarta.
+    name: substring en ambos sentidos sobre organo/adjudicatario normalizados.
     """
-    for a in row.iter():
-        href = a.get("href") or ""
-        if "expediente" in href.lower() or "licitacion" in href.lower():
-            return True
-    text = " ".join((t.text or "") for t in row.iter() if t.text)
-    if not text or len(text.strip()) <= 20:
+    metadata = data.get("metadata") or {}
+    if target_type in ("nif", "cif"):
+        target_upper = (target or "").strip().upper()
+        if not target_upper:
+            return False
+        nifs = metadata.get("nifs") or []
+        if not nifs:
+            return False
+        return target_upper in nifs
+    target_norm = normalize_for_match(target)
+    if not target_norm:
         return False
-    lowered = text.lower()
-    if any(m in lowered for m in ROW_MARKERS):
-        return True
-    first_token = text.strip().split(maxsplit=1)[0]
-    return bool(EXPEDIENTE_PREFIX.match(first_token))
+    candidates = [
+        metadata.get("organo_contratacion") or "",
+        metadata.get("adjudicatario_nombre") or "",
+    ]
+    for name in candidates:
+        name_norm = normalize_for_match(name)
+        if not name_norm:
+            continue
+        if target_norm in name_norm or name_norm in target_norm:
+            return True
+    return False
 
 
-def _cell_text(cell: ET.Element) -> str:
-    parts: list[str] = []
-    for t in cell.iter():
-        if t.text and t.text.strip():
-            parts.append(t.text.strip())
-    return html.unescape(" ".join(parts)).strip()
-
-
-def _cell_link(cell: ET.Element) -> str:
-    for a in cell.iter():
-        href = a.get("href") or ""
-        if href and (href.startswith("http") or href.startswith("/")):
-            if href.startswith("/"):
-                href = CONTRATACION_URL + href
-            return href
+def _extract_party_name(container) -> str:
+    if container is None:
+        return ""
+    name_el = container.find("cac:PartyName/cbc:Name", NS)
+    if name_el is not None and name_el.text:
+        return name_el.text.strip()
     return ""
 
 
-def _parse_amount(value: str) -> float | None:
-    if not value:
-        return None
-    cleaned = re.sub(r"[^\d,.\-]", "", value)
-    if not cleaned:
-        return None
-    # If both separators are present, the rightmost one is the decimal mark.
-    #   "1.234,56"  →  1234.56   (Spanish)
-    #   "1,234.56"  →  1234.56   (US/UK)
-    if "," in cleaned and "." in cleaned:
-        if cleaned.rfind(",") > cleaned.rfind("."):
-            cleaned = cleaned.replace(".", "").replace(",", ".")
-        else:
-            cleaned = cleaned.replace(",", "")
-    elif "," in cleaned:
-        # Single separator — assume European style (comma as decimal).
-        cleaned = cleaned.replace(",", ".")
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
+def _collect_nifs(entry) -> list[str]:
+    nifs: list[str] = []
+    for pid in entry.iter(f"{{{NS['cbc']}}}ID"):
+        if (pid.get("schemeName") or "").upper() == "NIF" and pid.text:
+            nif = pid.text.strip()
+            if nif and nif not in nifs:
+                nifs.append(nif)
+    return nifs
 
 
-def parse_results(html_content: str, target: str, target_type: str) -> list[dict[str, Any]]:
-    """Parse licitaciones out of a result page. Returns a list of records."""
-    try:
-        root = ET.fromstring(html_content)
-    except ET.ParseError as exc:
-        logger.warning(
-            "HTML parse error — returning empty results",
-            extra_data={"error": str(exc), "html_bytes": len(html_content)},
+def _parse_entry(entry, query: str) -> dict:
+    """Parsea un <entry> del feed CODICE en un Evidence dict."""
+    title = entry.findtext("atom:title", "", NS) or ""
+    summary = entry.findtext("atom:summary", "", NS) or ""
+    updated = entry.findtext("atom:updated", "", NS) or ""
+    date = updated[:10]
+
+    url = ""
+    for rel in ("alternate", None):
+        lk = entry.find(f'atom:link[@rel="{rel}"]', NS) if rel else entry.find("atom:link", NS)
+        if lk is not None and lk.get("href"):
+            url = lk.get("href", "")
+            break
+    if not url:
+        for lk in entry.findall("atom:link", NS):
+            if lk.get("href"):
+                url = lk.get("href", "")
+                break
+
+    cfs = entry.find("cac-place-ext:ContractFolderStatus", NS)
+    id_licitacion = ""
+    estado = ""
+    organo = ""
+    adjudicatario = ""
+    importe_estimado = ""
+    nifs: list[str] = []
+    if cfs is not None:
+        id_el = cfs.find("cbc:ContractFolderID", NS)
+        if id_el is not None and id_el.text:
+            id_licitacion = id_el.text.strip()
+        st_el = cfs.find("cbc-place-ext:ContractFolderStatusCode", NS)
+        if st_el is not None and st_el.text:
+            estado = st_el.text.strip()
+
+        lcp = cfs.find("cac-place-ext:LocatedContractingParty", NS)
+        if lcp is not None:
+            party = lcp.find("cac:Party", NS)
+            organo = _extract_party_name(party)
+
+        wp = cfs.find("cac:WinningParty", NS)
+        if wp is not None:
+            adjudicatario = _extract_party_name(wp)
+
+        est_el = cfs.find(
+            ".//cbc:EstimatedOverallContractAmount", NS
         )
-        return []
+        if est_el is None:
+            est_el = cfs.find(".//cbc-place-ext:EstimatedAmount", NS)
+        if est_el is not None and est_el.text:
+            importe_estimado = est_el.text.strip()
 
-    target_norm = (target or "").strip()
-    target_lower = target_norm.lower() if target_type == "name" else target_norm.upper()
-    records: list[dict[str, Any]] = []
+        nifs = _collect_nifs(entry)
 
-    for table in root.iter("table"):
-        rows = list(table.iter("tr"))
-        if len(rows) < 2:
-            continue
-
-        # Map header cells → canonical column name. We try <th> first,
-        # then fall back to <td> (some pages put the header row in <td>).
-        header_row = rows[0]
-        header_cells = list(header_row.iter("th"))
-        if not header_cells:
-            header_cells = list(header_row.iter("td"))
-        column_map: list[tuple[int, str | None]] = []
-        for i, cell in enumerate(header_cells):
-            column_map.append((i, _classify_header(_cell_text(cell))))
-
-        if not any(c[1] for c in column_map):
-            # No recognizable header — try generic body rows.
-            column_map = [(i, None) for i in range(6)]
-
-        for row in rows[1:]:
-            if not _is_result_row(row):
-                continue
-            cells = list(row.iter("td"))
-            if len(cells) < 2:
-                continue
-            record: dict[str, Any] = {
-                "expediente": "",
-                "organo": "",
-                "tipo": "",
-                "procedimiento": "",
-                "importe": None,
-                "moneda": "EUR",
-                "estado": "",
-                "fecha": "",
-                "ubicacion": "",
-                "url": "",
-                "snippet": "",
-            }
-            for idx, canonical in column_map:
-                if idx >= len(cells):
-                    continue
-                cell = cells[idx]
-                text = _cell_text(cell)
-                if canonical == "expediente":
-                    record["expediente"] = text
-                    if not record["url"]:
-                        record["url"] = _cell_link(cell)
-                elif canonical == "organo":
-                    record["organo"] = text
-                elif canonical == "tipo":
-                    record["tipo"] = text
-                elif canonical == "procedimiento":
-                    record["procedimiento"] = text
-                elif canonical == "importe":
-                    record["importe"] = _parse_amount(text)
-                elif canonical == "estado":
-                    record["estado"] = text
-                elif canonical == "fecha":
-                    record["fecha"] = text
-                elif canonical == "ubicacion":
-                    record["ubicacion"] = text
-                if not record["url"]:
-                    record["url"] = _cell_link(cell)
-            record["snippet"] = " | ".join(
-                str(x) for x in (
-                    record["expediente"],
-                    record["organo"],
-                    record["tipo"],
-                    f"{record['importe']:.2f} EUR" if record.get("importe") else "",
-                ) if x
-            )
-            if not record["expediente"] and not record["organo"]:
-                continue
-            # Defensive client-side filter — don't trust the form alone.
-            haystack = " ".join((
-                record["expediente"], record["organo"], record["tipo"],
-                record["procedimiento"], record["estado"], record["ubicacion"],
-            )).upper()
-            if target_norm and target_type in ("nif", "cif") and target_lower not in haystack:
-                # The form sometimes returns adjacent rows that mention
-                # the NIF in another cell — keep if at least 5 chars match.
-                if len(target_lower) < 5 or target_lower[:5] not in haystack:
-                    continue
-            records.append(record)
-
-    return records
-
-
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
-
-def search_contratacion(
-    target: str, target_type: str, count: int, timeout_s: int
-) -> tuple[list[dict[str, Any]], dict[str, Any], str | None]:
-    """Search the public Plataforma de Contratación for `target`.
-
-    Returns (records, meta, error). meta is a small dict surfaced to the
-    caller for debugging.
-    """
-    html_content, error, crawl_meta = call_crawl4ai(target, target_type, timeout_s)
-    if error or not html_content:
-        return [], {"crawl4ai": crawl_meta or {}}, error or "Crawl4AI returned empty body"
-
-    records = parse_results(html_content, target, target_type)
-    truncated = False
-    if len(records) > count:
-        records = records[:count]
-        truncated = True
-
-    meta = {
-        "source": "contratacion_search",
-        "target": target,
-        "target_type": target_type,
-        "count": len(records),
-        "truncated": truncated,
-        "crawl4ai": crawl_meta or {},
+    metadata = {
+        "id_licitacion": id_licitacion,
+        "organo_contratacion": organo,
+        "estado": estado,
+        "importe_estimado": importe_estimado,
+        "adjudicatario_nombre": adjudicatario,
+        "adjudicatario_nif": next((n for n in nifs if n), ""),
+        "nifs": nifs,
+        "resumen": summary[:500],
     }
-    return records, meta, None
+    return build_evidence(
+        source=SOURCE,
+        official=True,
+        confidence=1.0,
+        title=title,
+        date=date,
+        url=url,
+        metadata=metadata,
+        query=query,
+    )
 
 
-# ---------------------------------------------------------------------------
-# Rendering
-# ---------------------------------------------------------------------------
-
-def _format_amount(value: float | None) -> str:
-    if value is None:
-        return "—"
-    return f"{value:,.2f} EUR".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def _format_record_line(idx: int, record: dict[str, Any]) -> str:
-    lines = [
-        f"**{idx}. {record.get('expediente') or record.get('organo', '')}**",
-    ]
-    if record.get("organo"):
-        lines.append(f"Órgano: {record['organo']}")
-    if record.get("tipo"):
-        lines.append(f"Tipo: {record['tipo']}")
-    if record.get("procedimiento"):
-        lines.append(f"Procedimiento: {record['procedimiento']}")
-    if record.get("estado"):
-        lines.append(f"Estado: {record['estado']}")
-    if record.get("fecha"):
-        lines.append(f"Fecha: {record['fecha']}")
-    lines.append(f"Importe: {_format_amount(record.get('importe'))}")
-    if record.get("url"):
-        lines.append(f"URL: {record['url']}")
-    return "\n".join(lines)
-
-
-def render_markdown(
-    records: list[dict[str, Any]],
+def _search_live_atom(
     target: str,
     target_type: str,
-    meta: dict[str, Any],
-) -> str:
-    header = f"**Contratación del Sector Público — búsqueda por {target_type}={target}**"
-    subheader = f"Coincidencias: {len(records)}"
-    if meta.get("truncated"):
-        subheader += " (truncado)"
+    desde: datetime.date,
+    hasta: datetime.date,
+    count: int,
+) -> tuple[list[dict] | None, str | None]:
+    """Crawlea el feed ATOM live siguiendo paginacion rel="next"."""
+    if not REQUESTS_AVAILABLE:
+        return None, "la librería 'requests' no está disponible"
 
-    lines: list[str] = [header, subheader, ""]
-    if not records:
-        lines.append(
-            "No se encontraron licitaciones. Esto puede deberse a un timeout "
-            "de Crawl4AI, un cambio en el formulario de búsqueda, o a que "
-            "el objetivo no tiene resultados públicos."
+    results: list[dict] = []
+    feed_url = LIVE_FEED
+    pages = 0
+    query_label = f"{target_type}:{target}"
+
+    while feed_url and pages < MAX_LIVE_PAGES:
+        try:
+            resp = request_with_retry(
+                "GET",
+                feed_url,
+                headers={
+                    "Accept": "application/atom+xml, application/xml, text/xml, */*"
+                },
+                timeout=FEED_TIMEOUT,
+                max_retries=2,
+            )
+        except Exception as exc:
+            return None, f"error de red al obtener el feed PLACSP: {exc}"
+
+        if resp.status_code != 200:
+            return None, (
+                f"el feed PLACSP devolvió estado {resp.status_code} "
+                f"(URL: {feed_url})"
+            )
+
+        try:
+            root = ET.fromstring(resp.content)
+        except ET.ParseError as exc:
+            return None, f"no se pudo parsear el feed ATOM: {exc}"
+
+        page_max_date: datetime.date | None = None
+        for entry in root.findall("atom:entry", NS):
+            data = _parse_entry(entry, query_label)
+            d = _parse_date(data.get("date") or "")
+            if d is not None and (page_max_date is None or d > page_max_date):
+                page_max_date = d
+            if d is not None and (d < desde or d > hasta):
+                continue
+            if _entry_matches(data, target, target_type):
+                results.append(data)
+                if len(results) >= count:
+                    return results, None
+
+        pages += 1
+        if len(results) >= count:
+            return results, None
+
+        # Si lo más reciente de esta página ya es anterior a 'desde',
+        # las siguientes páginas (más antiguas) están fuera del rango.
+        if page_max_date is not None and page_max_date < desde:
+            break
+
+        next_link = root.find('atom:link[@rel="next"]', NS)
+        if next_link is None or not next_link.get("href"):
+            break
+        feed_url = next_link.get("href", "")
+        if feed_url == LIVE_FEED:
+            break
+
+    return results, None
+
+
+def _search_zip_files(
+    target: str,
+    target_type: str,
+    desde: datetime.date,
+    hasta: datetime.date,
+    count: int,
+) -> tuple[list[dict] | None, str | None]:
+    """Descarga los ZIP anuales del rango y parsea los *.atom incluidos.
+
+    Descarga en streaming a un fichero temporal en disco para no cargar el
+    ZIP completo en memoria (los ZIP anuales pueden superar los 500 MB).
+    """
+    if not REQUESTS_AVAILABLE:
+        return None, "la librería 'requests' no está disponible"
+
+    years = sorted(range(desde.year, hasta.year + 1))
+    if len(years) > MAX_ZIP_YEARS:
+        return None, (
+            f"Rango demasiado amplio: {len(years)} años (máx {MAX_ZIP_YEARS}). "
+            "Use fechas más próximas."
         )
-    else:
-        for i, r in enumerate(records, 1):
-            lines.append(_format_record_line(i, r))
-            lines.append("")
-    return "\n".join(lines).rstrip()
 
-
-# ---------------------------------------------------------------------------
-# main
-# ---------------------------------------------------------------------------
-
-def _parse_args(args: dict[str, Any]) -> tuple[str, str, int, int]:
-    target = str(args.get("target", "")).strip()
-    target_type = str(args.get("target_type", "nif")).strip().lower()
-    if target_type not in VALID_TARGET_TYPES:
-        target_type = "nif"
+    results: list[dict] = []
+    query_label = f"{target_type}:{target}"
+    tmpdir = tempfile.mkdtemp(prefix="placsp_")
     try:
-        count = int(args.get("count", DEFAULT_COUNT))
-    except (TypeError, ValueError):
+        for year in years:
+            if len(results) >= count:
+                break
+            zip_url = f"{ZIP_BASE}_{year}.zip"
+            zip_path = os.path.join(tmpdir, f"{year}.zip")
+            logger.info(
+                "Descargando ZIP PLACSP",
+                extra_data={"url": zip_url, "year": year},
+            )
+            try:
+                resp = request_with_retry(
+                    "GET",
+                    zip_url,
+                    headers={"Accept": "application/zip, application/octet-stream, */*"},
+                    timeout=ZIP_TIMEOUT,
+                    max_retries=2,
+                    stream=True,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Fallo al descargar ZIP",
+                    extra_data={"url": zip_url, "error": str(exc)},
+                )
+                continue
+
+            if resp is None or resp.status_code != 200:
+                logger.warning(
+                    "ZIP no disponible",
+                    extra_data={"url": zip_url, "status_code": getattr(resp, "status_code", None)},
+                )
+                continue
+
+            try:
+                with open(zip_path, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=ZIP_CHUNK_SIZE):
+                        if chunk:
+                            fh.write(chunk)
+            except (OSError, Exception) as exc:
+                logger.warning(
+                    "Fallo al guardar ZIP",
+                    extra_data={"url": zip_url, "error": str(exc)},
+                )
+                continue
+            finally:
+                resp.close()
+
+            try:
+                with zipfile.ZipFile(zip_path) as zf:
+                    for fname in zf.namelist():
+                        if not fname.lower().endswith(".atom"):
+                            continue
+                        try:
+                            with zf.open(fname) as fh:
+                                tree = ET.parse(fh)
+                        except (ET.ParseError, OSError) as exc:
+                            logger.warning(
+                                "No se pudo parsear ATOM del ZIP",
+                                extra_data={"file": fname, "error": str(exc)},
+                            )
+                            continue
+                        for entry in tree.getroot().findall("atom:entry", NS):
+                            data = _parse_entry(entry, query_label)
+                            d = _parse_date(data.get("date") or "")
+                            if d is not None and (d < desde or d > hasta):
+                                continue
+                            if _entry_matches(data, target, target_type):
+                                results.append(data)
+                                if len(results) >= count:
+                                    return results, None
+            except zipfile.BadZipFile:
+                logger.warning(
+                    "ZIP corrupto", extra_data={"url": zip_url}
+                )
+                continue
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return results, None
+
+
+def search_contratacion(
+    target: str,
+    target_type: str,
+    date_from: str,
+    date_to: str,
+    count: int,
+) -> tuple[list[dict] | None, str | None]:
+    """Elige estrategia híbrida según la longitud del rango de fechas."""
+    if not REQUESTS_AVAILABLE:
+        return None, "la librería 'requests' no está disponible"
+    if not target:
+        return None, "el parámetro 'target' es obligatorio"
+    if count is None or count <= 0:
         count = DEFAULT_COUNT
-    count = max(1, min(count, MAX_COUNT))
-    try:
-        timeout_s = int(args.get("timeout_s", DEFAULT_TIMEOUT_S))
-    except (TypeError, ValueError):
-        timeout_s = DEFAULT_TIMEOUT_S
-    timeout_s = max(MIN_TIMEOUT_S, min(timeout_s, MAX_TIMEOUT_S))
-    return target, target_type, count, timeout_s
+
+    desde, hasta = _default_window(date_from, date_to)
+    span_days = (hasta - desde).days
+    logger.info(
+        "Estrategia PLACSP",
+        extra_data={
+            "days": span_days,
+            "desde": desde.isoformat(),
+            "hasta": hasta.isoformat(),
+            "strategy": "live" if span_days <= 90 else "zip",
+        },
+    )
+    if span_days <= 90:
+        return _search_live_atom(target, target_type, desde, hasta, count)
+    return _search_zip_files(target, target_type, desde, hasta, count)
+
+
+def write_response(data: dict[str, Any]) -> None:
+    print(json.dumps(data, default=str), flush=True)
 
 
 def main() -> None:
     request: dict = {}
     try:
-        try:
-            raw = sys.stdin.read()
-            request = json.loads(raw) if raw.strip() else {}
-        except json.JSONDecodeError as exc:
-            write_response({
-                "success": False,
-                "request_id": "",
-                "error": {"code": "INVALID_JSON", "message": f"Failed to parse JSON: {exc}"},
-            })
-            return
-
+        request = json.loads(sys.stdin.read())
         request_id = request.get("request_id", "")
-        args = request.get("arguments", {}) or {}
-
-        target, target_type, count, timeout_s = _parse_args(args)
+        args = request.get("arguments", {})
+        target = str(args.get("target", "")).strip()
         if not target:
             write_response({
                 "success": False,
                 "request_id": request_id,
                 "error": {
                     "code": "MISSING_TARGET",
-                    "message": "target is required (NIF, CIF o nombre de organismo)",
+                    "message": "el parámetro 'target' es obligatorio",
                 },
             })
             return
+        target_type = args.get("target_type", "nif")
+        if target_type not in ("nif", "cif", "name"):
+            target_type = "nif"
+        date_from = args.get("date_from", "")
+        date_to = args.get("date_to", "")
+        count = args.get("count", DEFAULT_COUNT)
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            count = DEFAULT_COUNT
+        if count <= 0:
+            count = DEFAULT_COUNT
 
-        records, meta, error = search_contratacion(
-            target=target,
-            target_type=target_type,
-            count=count,
-            timeout_s=timeout_s,
+        results, error = search_contratacion(
+            target, target_type, date_from, date_to, count
         )
         if error:
             write_response({
@@ -657,31 +469,58 @@ def main() -> None:
             })
             return
 
-        text = render_markdown(records, target, target_type, meta)
+        retrieved_at = datetime.now(timezone.utc).isoformat()
+        desde, hasta = _default_window(date_from, date_to)
+
+        lines = [
+            f"**Contratación Pública (PLACSP) — Resultados para \"{target}\" "
+            f"({target_type})**\n",
+            f"Rango de fechas: {desde.isoformat()} a {hasta.isoformat()}.\n",
+        ]
+        if not results:
+            lines.append("No se encontraron resultados.\n")
+        else:
+            for i, r in enumerate(results, 1):
+                m = r.get("metadata", {}) or {}
+                importe = m.get("importe_estimado") or ""
+                lines.append(f"{i}. **{r.get('title')}**")
+                lines.append(f"   - Fecha: {r.get('date') or 'N/D'}")
+                if importe:
+                    lines.append(f"   - Importe estimado: {importe} €")
+                if m.get("adjudicatario_nombre"):
+                    lines.append(
+                        f"   - Adjudicatario: {m['adjudicatario_nombre']}"
+                    )
+                if m.get("estado"):
+                    lines.append(f"   - Estado: {m['estado']}")
+                if r.get("url"):
+                    lines.append(f"   - URL: {r['url']}")
+                lines.append("")
+
         write_response({
             "success": True,
             "request_id": request_id,
-            "content": [{"type": "text", "text": text}],
+            "content": [{"type": "text", "text": "\n".join(lines)}],
             "structured_content": {
-                "source": "contratacion_search",
-                "target": target,
-                "target_type": target_type,
-                "results": records,
-                "count": len(records),
-                "truncated": meta.get("truncated", False),
-                "meta": {k: v for k, v in meta.items() if k != "crawl4ai"},
-            },
-            "metadata": {
-                "tool": "contratacion_search",
-                "crawl4ai": meta.get("crawl4ai", {}),
+                "source": SOURCE,
+                "official": True,
+                "confidence": 1.0,
+                "results": results,
+                "count": len(results),
+                "date_from": desde.isoformat(),
+                "date_to": hasta.isoformat(),
+                "retrieved_at": retrieved_at,
+                "query": f"{target_type}:{target}",
             },
         })
+    except json.JSONDecodeError:
+        write_response({
+            "success": False,
+            "request_id": "",
+            "error": {"code": "INVALID_JSON", "message": "No se pudo analizar el JSON de entrada"},
+        })
     except Exception as exc:
-        logger.error(
-            "unhandled exception in contratacion_search",
-            extra_data={"error": str(exc)},
-            exc_info=True,
-        )
+        logger.error("Excepción no gestionada", extra_data={"error": str(exc)})
         write_response({
             "success": False,
             "request_id": request.get("request_id", ""),

@@ -45,6 +45,7 @@ toolsets:
       - contratacion_search
       - ted_fetch
       - ted_search
+      - doue_search
       - transparency_fetch
       - searxng_search
       - crawl4ai_render

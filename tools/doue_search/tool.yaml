@@ -1,0 +1,29 @@
+name: doue_search
+description: "Busca documentos en el Diario Oficial de la Unión Europea (DOUE / EUR-Lex) vía su WebService SOAP. Requiere credenciales EUR-Lex (ECAS) por seguridad WS-Security. Fuente oficial UE."
+command: python3
+args:
+  - main.py
+timeout: 90s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "NIF/CIF o nombre a buscar (ej. 'Banco Santander' o 'B12345678')"
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador: nif, cif o name"
+    date_from:
+      type: string
+      description: "Filtrar desde (YYYY-MM-DD). Default: 1 año atrás."
+    date_to:
+      type: string
+      description: "Filtrar hasta (YYYY-MM-DD). Default: hoy."
+    count:
+      type: integer
+      default: 20
+      description: "Máximo resultados (default 20, max 100)"
+  required:
+    - target

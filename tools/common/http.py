@@ -93,6 +93,7 @@ def _simple_retry_request(
     data: Optional[Any],
     timeout: int,
     max_retries: int,
+    stream: bool = False,
 ) -> "requests.Response":
     """Simple retry loop fallback when urllib3 Retry is unavailable.
 
@@ -113,6 +114,7 @@ def _simple_retry_request(
                 headers=headers,
                 data=data,
                 timeout=timeout,
+                stream=stream,
             )
             last_response = response
 
@@ -178,7 +180,8 @@ def request_with_retry(
     data: Optional[Any] = None,
     timeout: int = 30,
     max_retries: int = 3,
-) -> "requests.Response":
+        stream: bool = False,
+    ) -> "requests.Response":
     """Perform an HTTP request with retry/backoff and 429/503 Retry-After handling.
 
     Uses urllib3 Retry when available (with 429/503 Retry-After support).
@@ -193,6 +196,7 @@ def request_with_retry(
         data: Raw request body
         timeout: Request timeout in seconds
         max_retries: Maximum number of retry attempts
+        stream: Stream the response body instead of buffering it in memory
 
     Returns:
         requests.Response. Does not raise on transient HTTP errors (429/5xx);
@@ -229,11 +233,12 @@ def request_with_retry(
             headers=request_headers,
             data=data,
             timeout=timeout,
+            stream=stream,
         )
     else:
         response = _simple_retry_request(
             session, method, url, params, json, request_headers,
-            data, timeout, max_retries,
+            data, timeout, max_retries, stream,
         )
 
     duration = time.monotonic() - start_time
