@@ -1,19 +1,31 @@
 name: contratacion_search
-description: "Busca licitaciones y contratos en Contratacion del Estado por NIF/CIF de adjudicatario. Requiere scraping del formulario web."
+description: "Busca licitaciones en la Plataforma de Contratación del Sector Público (contrataciondelestado.es) por NIF/CIF de adjudicatario o nombre de organismo. Usa Crawl4AI para renderizar el buscador JS y parsear la tabla de resultados."
 command: python3
 args:
   - main.py
-timeout: 120s
+timeout: 240s
 input_schema:
   type: object
   properties:
     target:
       type: string
-      description: "NIF/CIF del adjudicatario o nombre de empresa"
+      description: "NIF/CIF del adjudicatario o nombre del órgano contratante a buscar. Requerido."
     target_type:
       type: string
       enum: [nif, cif, name]
       default: nif
-      description: "Tipo de identificador"
+      description: "Tipo de identificador. NIF/CIF: filtro exacto client-side. name: búsqueda libre."
+    count:
+      type: integer
+      default: 25
+      minimum: 1
+      maximum: 200
+      description: "Máximo de licitaciones a devolver (default 25, máx 200)."
+    timeout_s:
+      type: integer
+      default: 90
+      minimum: 30
+      maximum: 180
+      description: "Timeout en segundos para la llamada a Crawl4AI (default 90, máx 180)."
   required:
     - target

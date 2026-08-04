@@ -3,6 +3,10 @@ bin/
 *.test
 .env
 /server
-__pycache__/
-*.py[cod]
-.pytest_cache/
+# Cached bulk downloads from data sources. These are large (100MB+ for
+# the EU Transparency Register) and generated on demand; they should
+# never be committed.
+**/__pycache__/
+**/*.pyc
+*.pytest_cache/
+**/transparency_register*.xml

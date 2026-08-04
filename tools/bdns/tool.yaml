@@ -1,8 +1,8 @@
 name: bdns_fetch
-description: "Fetch BDNS (Base de Datos Nacional de Subvenciones) — ayudas y subvenciones públicas"
-command: /app/bin/bdns-agent
+description: "Busca ayudas, subvenciones, concesiones, planes estratégicos, minimis y sanciones en BDNS (Base de Datos Nacional de Subvenciones). Agrega resultados de las 5 categorías."
+command: python3
 args:
-  - "--mcp"
+  - main.py
 timeout: 300s
 input_schema:
   type: object

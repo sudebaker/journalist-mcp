@@ -1,9 +1,53 @@
 name: contratacion_fetch
-description: "Fetch Contratación del Sector Público — licitaciones y contratos públicos"
-command: /app/bin/contratacion-agent
+description: "Fetch Contratación del Sector Público — descarga el feed Atom mensual de licitaciones (ZIP) y devuelve las entradas parseadas (órgano contratante, NIF, importe, lotes, URL). Fuente oficial: Plataforma de Contratación del Sector Público."
+command: python3
 args:
-  - "--mcp"
+  - main.py
 timeout: 300s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    year:
+      type: integer
+      description: "Año (YYYY). Si se pasa solo, devuelve los 12 meses del año. Default: mes anterior."
+    month:
+      type: integer
+      minimum: 1
+      maximum: 12
+      description: "Mes (1-12). Se usa junto con year."
+    date_range:
+      type: object
+      description: "Rango de meses (inclusivo). Alternativa a year/month."
+      properties:
+        from:
+          type: string
+          description: "Inicio — YYYY, YYYY-MM o YYYYMM."
+        to:
+          type: string
+          description: "Fin — YYYY, YYYY-MM o YYYYMM."
+      required: [from, to]
+    bundles:
+      type: array
+      description: "Lista explícita de bundles mensuales (YYYY, YYYY-MM o YYYYMM). Máx 24 por llamada."
+      items:
+        type: string
+    target:
+      type: string
+      description: "NIF/CIF o nombre del órgano contratante para filtrar. Vacío = sin filtro."
+    target_type:
+      type: string
+      enum: [nif, cif, name]
+      default: nif
+      description: "Tipo de identificador para el filtro target."
+    count:
+      type: integer
+      default: 50
+      minimum: 1
+      maximum: 200
+      description: "Máximo de entradas a devolver (default 50, máx 200)."
+  required: []
+  # anyOf intentionally omitted: lightweight validators in the Go server
+  # ignore it. Python code in main.py (_resolve_bundles) raises
+  # ValueError("no date input provided: ...") when none of year+month,
+  # year, date_range, or bundles is supplied, which is then mapped to
+  # an INVALID_INPUT error response.

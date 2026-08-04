@@ -1,9 +1,29 @@
 name: fts_fetch
-description: "Fetch FTS (Financial Tracking Service) — seguimiento de financiación humanitaria"
-command: /app/bin/fts-agent
+description: "Fetch FTS (Financial Tracking Service) — datos de financiación humanitaria de OCHA via HDX. Permite filtrar por país ISO3, rango de años, fecha de reporte, y búsqueda libre sobre organizaciones, planes y descripciones."
+command: python3
 args:
-  - "--mcp"
-timeout: 300s
+  - main.py
+timeout: 180s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    country:
+      type: string
+      description: "Código ISO-3166 alpha-3 del país (e.g. AFG, SYR, UKR, YEM). Si se omite, se consultan los datos globales."
+    from:
+      type: integer
+      description: "Año de inicio (inclusive) para filtrar flujos por año fiscal. Aplica tanto a requisitos como a flujos entrantes."
+    to:
+      type: integer
+      description: "Año de fin (inclusive) para filtrar flujos por año fiscal."
+    date:
+      type: string
+      description: "Fecha mínima de reporte (YYYY-MM-DD). Sólo se devuelven flujos con date >= este valor. Activa el modo de búsqueda en incoming_funding."
+    query:
+      type: string
+      description: "Búsqueda libre (case-insensitive) sobre descripción, organizaciones origen/destino, plan, proyecto, localizaciones y código de referencia. Activa el modo de búsqueda en incoming_funding."
+  required: []
+  # anyOf intentionally omitted: lightweight validators in the Go server
+  # ignore it. Python code in main.py enforces the "at least one of
+  # country/from/to/date/query" rule via the MISSING_FILTER branch, which
+  # produces a user-visible error.

@@ -107,7 +107,7 @@ func BuildDependencies(cfg *config.Config) []DependencyCheck {
 	for _, tool := range cfg.Tools {
 		switch tool.Name {
 		case "browser_scraper", "web_scraper":
-			crawl4aiURL := osGetenv("CRAWL4AI_URL", "http://crawl4ai:8000")
+			crawl4aiURL := osGetenv("CRAWL4AI_URL", "http://crawl4ai:11235")
 			hostPort := extractHostPort(crawl4aiURL)
 			deps = append(deps, DependencyCheck{
 				Name:     "crawl4ai",

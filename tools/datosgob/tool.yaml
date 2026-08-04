@@ -1,9 +1,18 @@
 name: datosgob_fetch
 description: "Fetch datasets from datos.gob.es — portal de datos abiertos del Gobierno de España"
-command: /app/bin/datosgob-agent
+command: python3
 args:
-  - "--mcp"
-timeout: 300s
+  - main.py
+timeout: 120s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    query:
+      type: string
+      description: "Texto a buscar en título / descripción / keywords / editor. Vacío = primer página del catálogo."
+      default: ""
+    rows:
+      type: integer
+      description: "Máximo de datasets a devolver (1-100, default 50)."
+      default: 50
+  required: []

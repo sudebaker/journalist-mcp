@@ -1,9 +1,18 @@
 name: pscp_fetch
-description: "Fetch PSCP (Plataforma de Contratación del Sector Público) — licitaciones de la plataforma estatal"
-command: /app/bin/pscp-agent
+description: "Fetch PSCP (Plataforma de Contratación del Sector Público) — licitaciones o contratos menores agregados desde feeds Atom oficiales. Fuente oficial del Estado español."
+command: python3
 args:
-  - "--mcp"
-timeout: 300s
+  - main.py
+timeout: 60s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    feed_type:
+      type: string
+      enum: [licitaciones, menores]
+      default: licitaciones
+      description: "Tipo de feed PSCP: 'licitaciones' (perfiles contratantes completo) o 'menores' (plataformas agregadas sin menores)."
+    limit:
+      type: integer
+      default: 25
+      description: "Máximo de entradas a devolver (default 25, max 100)."

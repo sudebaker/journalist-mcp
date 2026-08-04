@@ -1,9 +1,31 @@
 name: ted_fetch
-description: "Fetch TED (Tenders Electronic Daily) — licitaciones públicas europeas"
-command: /app/bin/ted-agent
+description: "Fetch TED (Tenders Electronic Daily) — descarga histórica en batch de licitaciones públicas europeas por fecha o rango. Fuente oficial UE (TED API v3). Diferente de ted_search (que busca por NIF/nombre): ted_fetch descarga el flujo histórico completo."
+command: python3
 args:
-  - "--mcp"
+  - main.py
 timeout: 300s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    date:
+      type: string
+      description: "Fecha específica (YYYY-MM-DD). Si no se especifica ni 'from'+'to', usa hoy."
+    from:
+      type: string
+      description: "Inicio de rango histórico (YYYY-MM-DD). Requiere 'to'."
+    to:
+      type: string
+      description: "Fin de rango histórico (YYYY-MM-DD). Requiere 'from'."
+    rows:
+      type: integer
+      default: 100
+      description: "Máximo de notices a devolver (1-1000, default 100). El API pagina automáticamente con limit=100 por página."
+    scope:
+      type: string
+      enum: [active, all]
+      default: active
+      description: "Filtrar por estado: 'active' (licitaciones activas en TED, default) o 'all' (incluye canceladas/archivadas)."
+    workers:
+      type: integer
+      default: 4
+      description: "Número de workers concurrentes para paginación (default 4, max 8)."

@@ -1,24 +1,63 @@
 toolsets:
-  osint-es:
-    description: "OSIM en fuentes abiertas españolas y europeas"
+  ocu-investigacion:
+    description: "Herramientas forenses y de investigación para la OCU (22 tools)"
     tools:
+      # OSINT español
+      - journalist_investigate
       - boe_fetch
+      - boe_search
       - borme_fetch
+      - borme_search
       - bdns_fetch
-      - ckan_fetch
-      - cohesion_fetch
+      - bdns_search
       - contratacion_fetch
-      - datosgob_fetch
-      - fts_fetch
-      - pscp_fetch
+      - contratacion_search
       - ted_fetch
       - ted_search
-      - borme_search
+      - transparency_fetch
+      # Scraping y búsqueda
+      - searxng_search
+      - crawl4ai_render
+      - browser_scraper
+      # Forenses OCu
+      - memgraph_query
+      - opensearch_query
+      - cross_reference
+      - timeline_generator
+      - audit_log
+      - case_evidence
+      - forensic_ingest
+      # Utilidades
+      - datetime
+      - rustfs_storage
+
+  osint-es:
+    description: "OSINT en fuentes abiertas españolas y europeas"
+    tools:
+      - journalist_investigate
+      - boe_fetch
       - boe_search
+      - borme_fetch
+      - borme_search
+      - bdns_fetch
       - bdns_search
+      - contratacion_fetch
       - contratacion_search
+      - ted_fetch
+      - ted_search
       - transparency_fetch
       - searxng_search
-      - browserless_render
-      - list_sources
-      - journalist_investigate
+      - crawl4ai_render
+      - browser_scraper
+      - datetime
+      - rustfs_storage
+
+  default:
+    description: "Herramientas generales"
+    tools:
+      - searxng_search
+      - crawl4ai_render
+      - browser_scraper
+      - datetime
+      - rustfs_storage
+      - echo

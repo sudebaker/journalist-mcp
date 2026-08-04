@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="report-header">
+        <div class="report-type">Incident Report</div>
+        <h1>{{ title }}</h1>
+        <div class="report-date">Generated: {{ generated_at }}</div>
+        <div style="margin-top: 12px;">
+            <span class="badge badge-{{ severity|lower }}">{{ severity }}</span>
+            <span class="badge badge-status-{{ status|lower|replace(' ', '-') }}">{{ status }}</span>
+        </div>
+    </div>
+
+    <section class="info-grid">
+        <div class="info-item">
+            <label>Incident ID</label>
+            <span>{{ incident_id }}</span>
+        </div>
+        <div class="info-item">
+            <label>Date</label>
+            <span>{{ date }}</span>
+        </div>
+        <div class="info-item">
+            <label>Time</label>
+            <span>{{ time }}</span>
+        </div>
+        <div class="info-item">
+            <label>Reported By</label>
+            <span>{{ reported_by }}</span>
+        </div>
+    </section>
+
+    {% if description %}
+    <section>
+        <h2>Description</h2>
+        <p>{{ description }}</p>
+    </section>
+    {% endif %}
+
+    {% if affected_systems and affected_systems|length > 0 %}
+    <section>
+        <h2>Affected Systems</h2>
+        <ul>
+            {% for system in affected_systems %}
+            <li>{{ system }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    {% if timeline and timeline|length > 0 %}
+    <section>
+        <h2>Timeline of Events</h2>
+        <table class="timeline-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Event Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in timeline %}
+                <tr>
+                    <td>{{ event.time }}</td>
+                    <td>{{ event.description }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+    {% endif %}
+
+    <section>
+        <h2>Root Cause Analysis</h2>
+        <p>{{ root_cause }}</p>
+    </section>
+
+    <section>
+        <h2>Resolution</h2>
+        <p>{{ resolution }}</p>
+    </section>
+
+    {% if lessons_learned and lessons_learned|length > 0 %}
+    <section>
+        <h2>Lessons Learned</h2>
+        <ul>
+            {% for lesson in lessons_learned %}
+            <li>{{ lesson }}</li>
+            {% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    <footer>
+        <div class="confidential">Confidential Document</div>
+        <p class="generated-at">Report generated on {{ generated_at }}</p>
+    </footer>
+</body>
+</html>

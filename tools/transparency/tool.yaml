@@ -1,9 +1,27 @@
 name: transparency_fetch
-description: "Fetch Transparency Portal — portal de transparencia de la Administración General del Estado"
-command: /app/bin/transparency-agent
+description: "Busca organizaciones en el Registro de Transparencia de la UE (lobbies acreditados ante la Comisión Europea). Descarga el XML bulk oficial, lo cachea localmente y filtra por nombre, categoría y país."
+command: python3
 args:
-  - "--mcp"
+  - main.py
 timeout: 300s
 input_schema:
   type: object
-  properties: {}
+  properties:
+    query:
+      type: string
+      description: "Texto a buscar en el nombre de la organización (case-insensitive substring match). Si se omite, devuelve las primeras N organizaciones sin filtro de nombre."
+    category:
+      type: string
+      description: "Filtra por categoría de registro (substring case-insensitive). Valores oficiales del registro UE: 'Trade unions and professional associations', 'Non-governmental organisations, platforms and networks and similar', 'Think tanks and research institutions', 'Companies & groups', 'Trade and business associations', 'Law firms', 'Professional consultancies', 'Other organisations, public or mixed entities', 'Self-employed individuals', 'Organisations representing churches and religious communities', 'Academic institutions', 'Associations and networks of public authorities', 'Entities, offices or networks established by third countries'. Si se omite, no se filtra por categoría."
+    country:
+      type: string
+      description: "Filtra por país de la sede principal (headOffice/country). Comparación case-insensitive substring. Ejemplos: 'SPAIN', 'FRANCE', 'GERMANY'. Si se omite, no se filtra por país."
+    limit:
+      type: integer
+      default: 20
+      description: "Número máximo de resultados a devolver (default 20, max 200)."
+    refresh:
+      type: boolean
+      default: false
+      description: "Si es true, fuerza redescarga del XML bulk aunque exista caché local."
+  required: []
