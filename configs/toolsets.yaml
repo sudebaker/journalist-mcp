@@ -15,6 +15,7 @@ toolsets:
       - ted_fetch
       - ted_search
       - transparency_fetch
+      - transparency_search
       # Scraping y búsqueda
       - searxng_search
       - crawl4ai_render
@@ -47,6 +48,7 @@ toolsets:
       - ted_search
       - doue_search
       - transparency_fetch
+      - transparency_search
       - searxng_search
       - crawl4ai_render
       - browser_scraper

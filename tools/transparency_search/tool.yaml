@@ -1,0 +1,30 @@
+name: transparency_search
+description: "Busca en el Portal de Transparencia: publicidad activa y Altos Cargos por nombre."
+command: python3
+args: [main.py]
+timeout: 120s
+input_schema:
+  type: object
+  properties:
+    target:
+      type: string
+      description: "Nombre de la persona o entidad a buscar"
+    target_type:
+      type: string
+      enum: [name]
+      default: name
+      description: "Solo búsqueda por nombre (el portal no indexa por NIF/CIF)"
+    search_scope:
+      type: string
+      enum: [all, publicidad_activa, altos_cargos]
+      default: all
+    date_from:
+      type: string
+      description: "YYYY-MM-DD"
+    date_to:
+      type: string
+      description: "YYYY-MM-DD"
+    count:
+      type: integer
+      default: 20
+  required: [target]
