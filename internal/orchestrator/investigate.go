@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -41,15 +42,25 @@ func New(cfg *config.Config, exec *executor.Executor) *Orchestrator {
 	return &Orchestrator{cfg: cfg, exec: exec}
 }
 
-var defaultSources = []string{
-	"ted_search", "borme_search", "boe_search", "searxng_search",
+// resolveSources returns the sources to investigate. Explicitly requested
+// sources pass through unchanged. When none are requested, it derives the
+// sources dynamically from the configured tools, keeping every tool whose
+// name ends in "_search" and excluding the orchestrator itself.
+func (o *Orchestrator) resolveSources(requested []string) []string {
+	if len(requested) > 0 {
+		return requested
+	}
+	var out []string
+	for _, t := range o.cfg.Tools {
+		if strings.HasSuffix(t.Name, "_search") && t.Name != "journalist_investigate" {
+			out = append(out, t.Name)
+		}
+	}
+	return out
 }
 
 func (o *Orchestrator) Investigate(ctx context.Context, req InvestigateRequest) *InvestigateResult {
-	sources := req.Sources
-	if len(sources) == 0 {
-		sources = defaultSources
-	}
+	sources := o.resolveSources(req.Sources)
 
 	var mu sync.Mutex
 	result := &InvestigateResult{
