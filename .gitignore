@@ -10,3 +10,4 @@ bin/
 **/*.pyc
 *.pytest_cache/
 **/transparency_register*.xml
+.atl/
