@@ -13,14 +13,9 @@ from typing import Any, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from common.structured_logging import get_logger
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 logger = get_logger(__name__, "searxng_search")
-
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
 
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080").strip().rstrip("/")
 DEFAULT_COUNT = 10
@@ -63,7 +58,8 @@ def searxng_search(
         params["time_range"] = time_range
 
     try:
-        response = requests.get(
+        response = request_with_retry(
+            "GET",
             f"{SEARXNG_URL}/search",
             params=params,
             headers={"Accept": "application/json"},
@@ -84,12 +80,13 @@ def searxng_search(
             })
         return results, None
 
-    except requests.exceptions.Timeout:
-        return None, f"SearXNG timed out after {DEFAULT_TIMEOUT}s"
-    except requests.exceptions.ConnectionError as e:
-        return None, f"Cannot reach SearXNG at {SEARXNG_URL}: {str(e)}"
     except Exception as e:
-        return None, f"Search failed: {str(e)}"
+        msg = str(e)
+        if "timeout" in msg.lower() or "timed" in msg.lower():
+            return None, f"SearXNG timed out after {DEFAULT_TIMEOUT}s"
+        if "connection" in msg.lower() or "refused" in msg.lower():
+            return None, f"Cannot reach SearXNG at {SEARXNG_URL}: {msg}"
+        return None, f"Search failed: {msg}"
 
 
 def main() -> None:

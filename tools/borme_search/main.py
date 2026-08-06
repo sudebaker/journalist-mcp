@@ -7,14 +7,9 @@ from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 logger = get_logger(__name__, "borme_search")
-
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
 
 BORME_API = "https://www.boe.es/datosabiertos/api/borme/sumario"
 
@@ -34,7 +29,7 @@ def date_range(from_str: str, to_str: str) -> list[str]:
 def fetch_borme_day(date_str: str) -> list[dict]:
     url = f"{BORME_API}/{date_str}"
     try:
-        resp = requests.get(url, headers={"Accept": "application/json"}, timeout=15)
+        resp = request_with_retry("GET", url, headers={"Accept": "application/json"}, timeout=15)
         if resp.status_code != 200:
             return []
         data = resp.json()

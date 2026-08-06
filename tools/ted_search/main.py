@@ -7,14 +7,9 @@ from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 logger = get_logger(__name__, "ted_search")
-
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
 
 TED_API_URL = "https://api.ted.europa.eu/v3/notices/search"
 
@@ -47,7 +42,8 @@ def search_ted(target: str, target_type: str, date_from: str, date_to: str, coun
         "limit": min(count, 100),
     }
     try:
-        resp = requests.post(TED_API_URL, json=payload, timeout=30, headers={"Accept": "application/json"})
+        resp = request_with_retry("POST", TED_API_URL, json=payload, timeout=30,
+                                  headers={"Accept": "application/json"})
         if resp.status_code != 200:
             return None, f"TED API returned HTTP {resp.status_code}"
         data = resp.json()
@@ -62,9 +58,10 @@ def search_ted(target: str, target_type: str, date_from: str, date_to: str, coun
                 "org_national_id": n.get("organisation-identifier-buyer", ""),
             })
         return results, None
-    except requests.exceptions.Timeout:
-        return None, "TED API timed out"
     except Exception as e:
+        msg = str(e)
+        if "timeout" in msg.lower() or "timed" in msg.lower():
+            return None, "TED API timed out"
         return None, f"TED search failed: {e}"
 
 
