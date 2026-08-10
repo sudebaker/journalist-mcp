@@ -28,9 +28,17 @@ import (
 )
 
 const (
-	Version       = "0.1.0"
 	maxArgsSize   = 1 << 20
 	maxArgsSizeMB = 1
+)
+
+// Build metadata, overridable at build time via ldflags, e.g.:
+//
+//	go build -ldflags "-X main.Version=v1.2.0 -X main.Commit=abc1234 -X main.BuildDate=2026-08-10"
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
 )
 
 func main() {
@@ -48,6 +56,8 @@ func main() {
 
 	log.Info().
 		Str("version", Version).
+		Str("commit", Commit).
+		Str("build_date", BuildDate).
 		Str("config", *configPath).
 		Msg("Starting journalist-mcp")
 

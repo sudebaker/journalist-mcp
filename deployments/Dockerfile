@@ -1,10 +1,21 @@
 # Stage 1: Build MCP server (Go)
 FROM golang:1.23-alpine AS server-builder
+
+# Semantic version stamp, overridable from the build: --build-arg VERSION=v1.2.3
+ARG VERSION=dev
+ARG COMMIT=""
+
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src/journalist-mcp
 COPY . .
-RUN go mod download && \
-    CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath \
+RUN go mod download \
+    && LD_FLAGS="-s -w \
+      -X main.Version=${VERSION} \
+      -X main.BuildDate=$(date -u +%Y-%m-%d)" \
+    && if [ -n "${COMMIT}" ]; then \
+         LD_FLAGS="${LD_FLAGS} -X main.Commit=${COMMIT}"; \
+       fi \
+    && CGO_ENABLED=0 go build -ldflags="${LD_FLAGS}" -trimpath \
     -o /out/bin/mcp-server ./cmd/server/
 
 # Stage 2: Python base with system dependencies
