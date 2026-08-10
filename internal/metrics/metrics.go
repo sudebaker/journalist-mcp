@@ -40,6 +40,39 @@ var (
 		[]string{"tool_name"},
 	)
 
+	SourceResults = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcp_source_results_total",
+			Help: "Total number of evidence records returned per search source",
+		},
+		[]string{"source"},
+	)
+
+	SourceErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcp_source_errors_total",
+			Help: "Total number of failed search source executions",
+		},
+		[]string{"source", "error_code"},
+	)
+
+	SourceDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mcp_source_duration_seconds",
+			Help:    "Search source execution duration in seconds",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
+		},
+		[]string{"source"},
+	)
+
+	SourceDuplicatesRemoved = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mcp_source_duplicates_removed_total",
+			Help: "Total number of duplicate evidence records removed by the orchestrator",
+		},
+		[]string{"source"},
+	)
+
 	ActiveConnections = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "mcp_active_connections",
@@ -114,6 +147,22 @@ func RecordToolExecution(toolName string, success bool, durationSeconds float64)
 	}
 	ToolExecutionTotal.WithLabelValues(toolName, status).Inc()
 	ToolExecutionDuration.WithLabelValues(toolName).Observe(durationSeconds)
+}
+
+func RecordSourceExecution(source string, success bool, errorCode string, count int, duplicatesRemoved int, durationSeconds float64) {
+	SourceDuration.WithLabelValues(source).Observe(durationSeconds)
+	if !success {
+		code := errorCode
+		if code == "" {
+			code = "UNKNOWN"
+		}
+		SourceErrors.WithLabelValues(source, code).Inc()
+		return
+	}
+	SourceResults.WithLabelValues(source).Add(float64(count))
+	if duplicatesRemoved > 0 {
+		SourceDuplicatesRemoved.WithLabelValues(source).Add(float64(duplicatesRemoved))
+	}
 }
 
 func RecordRequest(method string, status string, durationSeconds float64) {
