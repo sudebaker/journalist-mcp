@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Smoke tests for tools/common/http.py."""
 
+import http.server
 import os
 import sys
+import threading
 
 import pytest
 
@@ -18,6 +20,24 @@ from common.http import (
 KNOW_GOOD_URL = "https://www.google.com"
 
 
+def _local_server():
+    """Starts an ephemeral HTTP/200 server on 127.0.0.1 (offline, deterministic)."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/"
+
+
 @pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
 def test_get_session_returns_configured_session():
     session = get_session()
@@ -27,8 +47,13 @@ def test_get_session_returns_configured_session():
 
 @pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
 def test_request_with_retry_get_200():
-    response = request_with_retry("GET", KNOW_GOOD_URL, timeout=15, max_retries=2)
-    assert response.status_code == 200
+    server, url = _local_server()
+    try:
+        response = request_with_retry("GET", url, timeout=5, max_retries=2)
+        assert response.status_code == 200
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 @pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")

@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: "1.23"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  go:
+    name: Go (vet + test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./... -count=1
+      - name: Build
+        run: go build ./cmd/server/
+
+  python:
+    name: Python (offline tests + deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: deployments/requirements.txt
+      - name: Install pinned dependencies
+        run: pip install --no-cache-dir -r deployments/requirements.txt pytest
+      - name: Offline unit tests (tests/common)
+        run: python -m pytest tests/common -q
+      - name: Offline smoke (DOUE without credentials)
+        run: python3 tests/tools/test_doue_search.py
+
+  compose:
+    name: Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose fails fast without required secrets
+        run: |
+          if docker compose -f deployments/docker-compose.yml config --quiet >/dev/null 2>&1; then
+            echo "::error::compose config should FAIL without deployments/.env (required secrets)"
+            exit 1
+          fi
+          echo "OK: missing secrets are fail-fast"
+      - name: Compose validates with populated env
+        run: |
+          cat > .env.ci <<EOF
+          DATABASE_URL=postgresql://mcp:dummy@postgres:5432/knowledge
+          RUSTFS_ACCESS_KEY_ID=dummy
+          RUSTFS_SECRET_ACCESS_KEY=dummy
+          POSTGRES_PASSWORD=dummy
+          CRAWL4AI_TOKEN=dummy
+          SEARXNG_SECRET=dummy
+          EOF
+          docker compose -f deployments/docker-compose.yml --env-file .env.ci config --quiet
+          echo "OK: compose config valid with populated env"
+
+  docker-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build journalist-mcp image
+        run: docker compose -f deployments/docker-compose.yml build journalist-mcp
+
+  secret-scan:
+    name: Secret scan (no default credentials)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan for known insecure default credentials
+        run: |
+          if rg -n -i \
+              -e 'mcppassword' \
+              -e 'rustfsadmin' \
+              -e 'crawl4ai-dev-token-abc123def456' \
+              -e 'uOuutp0sI7tM0OkM4DLcXnIr3BpNUN' \
+              --glob '!.git/**' \
+              --glob '!internal/config/secrets.go' \
+              --glob '!internal/config/secrets_test.go' \
+              .; then
+            echo "::error::Insecure default credential found in repository"
+            exit 1
+          fi
+          echo "OK: no insecure default credentials"
+
+  live-smoke:
+    name: Live smoke (best-effort, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install pinned dependencies
+        run: pip install --no-cache-dir -r deployments/requirements.txt
+      - name: Run live search-tool runners
+        run: |
+          for runner in tests/tools/test_bdns_search.py \
+                        tests/tools/test_contratacion_search.py \
+                        tests/tools/test_transparency_search.py; do
+            echo "=== $runner ==="
+            python3 "$runner" || true
+          done

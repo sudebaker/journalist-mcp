@@ -12,8 +12,9 @@
 # SECRETOS: las variables críticas usan ${VAR:?...} — el stack NO arranca sin
 # deployments/.env. Copia .env.example con credenciales reales.
 #
-# TODO(fase 2): pinar versiones de imágenes (hoy algunas usan :latest) y generar
-# lockfile de dependencias Python/Go para builds reproducibles.
+# VERSIONES: todas las imágenes están pinadas a tags verificados (2026-08-10).
+# Un upgrade de imagen es un cambio deliberado: búmpa aquí y revisa la salud del
+# stack antes de mergear. Dependencias Python pinadas en deployments/requirements.txt.
 
 services:
 
@@ -88,7 +89,7 @@ services:
   # ═══════════════════════════════════════════════
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.6-pg16
     container_name: mcp-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mcp}
@@ -115,7 +116,7 @@ services:
           memory: 512M
 
   whisper:
-    image: fedirz/faster-whisper-server:latest-cpu
+    image: fedirz/faster-whisper-server:0.6.0-rc.3-cpu
     container_name: whisper
     environment:
       WHISPER_MODEL: Systran/faster-whisper-small
@@ -139,7 +140,7 @@ services:
           memory: 512M
 
   rustfs:
-    image: rustfs/rustfs:latest
+    image: rustfs/rustfs:1.0.0-rc.1
     container_name: rustfs
     ports:
       - "127.0.0.1:9000:9000"
@@ -167,7 +168,7 @@ services:
           memory: 128M
 
   memgraph:
-    image: memgraph/memgraph-mage:latest
+    image: memgraph/memgraph-mage:3.12.0
     container_name: ocu-memgraph
     profiles:
       - ocu-investigacion
@@ -205,7 +206,7 @@ services:
           memory: 512M
 
   opensearch:
-    image: opensearchproject/opensearch:latest
+    image: opensearchproject/opensearch:2.19.6
     container_name: ocu-opensearch
     profiles:
       - ocu-investigacion
@@ -254,7 +255,7 @@ services:
   # ═══════════════════════════════════════════════
 
   crawl4ai:
-    image: unclecode/crawl4ai:latest
+    image: unclecode/crawl4ai:0.9.2
     container_name: crawl4ai
     ports:
       - "127.0.0.1:11235:11235"
@@ -280,7 +281,7 @@ services:
       start_period: 40s
 
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.8.10-0a118066d
     container_name: searxng
     environment:
       - BASE_URL=http://searxng:8080

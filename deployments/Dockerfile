@@ -36,45 +36,8 @@ FROM python-base AS python-deps
 
 WORKDIR /app
 
-COPY <<EOF /app/requirements.txt
-# Core
-requests>=2.31.0
-
-# Web scraping
-beautifulsoup4>=4.12.0
-
-# PDF Reports
-jinja2>=3.1.2
-weasyprint>=60.0
-markdown>=3.5
-
-# Data
-numpy>=1.24.0
-pillow>=10.0.0
-
-# PostgreSQL
-psycopg2-binary>=2.9.0
-
-# S3 (RustFS/MinIO)
-minio>=7.2.0
-
-# Forensic investigation tools
-rapidfuzz>=3.0.0
-python-magic>=0.4.27
-imagehash>=4.3.1
-folium>=0.14.0
-
-# Graph / search drivers
-neo4j>=5.14.0
-opensearch-py>=2.4.0
-
-# Document parsing
-pypdf>=3.0.0
-python-docx>=1.0.0
-
-# Config
-pyyaml>=6.0
-EOF
+# Versions pinned in deployments/requirements.txt (locked, reproducible builds)
+COPY deployments/requirements.txt /app/requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt
 
