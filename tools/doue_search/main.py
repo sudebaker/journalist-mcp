@@ -367,6 +367,8 @@ def main() -> None:
                 date=n.get("publicationDate", "") or n.get("celex", ""),
                 url=n.get("url", ""),
                 metadata=metadata,
+                entity=target,
+                raw=metadata,
                 query=f"EUR-Lex DOUE: {build_expert_query(target, target_type, date_from, date_to)}",
             )
             evidences.append(ev)
@@ -392,8 +394,10 @@ def main() -> None:
             "content": [{"type": "text", "text": "\n".join(lines)}],
             "structured_content": {
                 "source": "doue", "target": target,
-                "evidence": evidences,
+                "results": evidences,
                 "count": len(evidences),
+                "official": True,
+                "evidence_type": "official_record",
             },
         })
     except json.JSONDecodeError:

@@ -8,6 +8,7 @@ from typing import Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
 from common.http import request_with_retry, REQUESTS_AVAILABLE
+from common.evidence import build_evidence, build_search_result
 
 logger = get_logger(__name__, "borme_search")
 
@@ -61,13 +62,23 @@ def search_borme(target: str, target_type: str, date_from: str, date_to: str):
         items = fetch_borme_day(d)
         for item in items:
             if matches_target(item, target, target_type):
-                results.append({
-                    "date": d,
-                    "nif": item.get("nif", ""),
-                    "name": item.get("nombre", ""),
-                    "actos": item.get("actos", []),
-                    "url": item.get("url", ""),
-                })
+                url = item.get("url", "")
+                nombre = item.get("nombre", "")
+                results.append(build_evidence(
+                    source="borme",
+                    official=True,
+                    confidence=0.9,
+                    title=nombre,
+                    date=d,
+                    url=url,
+                    entity=target,
+                    raw={
+                        "nif": item.get("nif", ""),
+                        "name": nombre,
+                        "actos": item.get("actos", []),
+                    },
+                    query=target,
+                ))
     return results, None
 
 
@@ -96,8 +107,9 @@ def main() -> None:
             return
         lines = [f"**BORME — Actos mercantiles para {target}**\n"]
         for r in results:
-            lines.append(f"Fecha: {r['date']} | {r['name']} ({r['nif']})")
-            for acto in r.get("actos", []):
+            raw = r.get("raw", {})
+            lines.append(f"Fecha: {r['date']} | {r['title']} ({raw.get('nif', '')})")
+            for acto in raw.get("actos", []):
                 lines.append(f"  → {acto}")
             lines.append("")
         if not results:
@@ -105,7 +117,8 @@ def main() -> None:
         write_response({
             "success": True, "request_id": request_id,
             "content": [{"type": "text", "text": "\n".join(lines)}],
-            "structured_content": {"source": "borme", "target": target, "results": results, "count": len(results)},
+            "structured_content": build_search_result(
+                source="borme", target=target, results=results),
         })
     except json.JSONDecodeError:
         write_response({"success": False, "request_id": "",

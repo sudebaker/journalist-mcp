@@ -323,8 +323,10 @@ def main() -> None:
             "content": [{"type": "text", "text": "\n".join(lines)}],
             "structured_content": {
                 "source": "BDNS",
+                "target": target,
                 "official": True,
                 "confidence": 1.0,
+                "evidence_type": "official_record",
                 "results": results,
                 "count": len(results),
                 "date_from": df,

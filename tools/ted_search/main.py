@@ -8,6 +8,7 @@ from typing import Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
 from common.http import request_with_retry, REQUESTS_AVAILABLE
+from common.evidence import build_evidence, build_search_result
 
 logger = get_logger(__name__, "ted_search")
 
@@ -50,13 +51,23 @@ def search_ted(target: str, target_type: str, date_from: str, date_to: str, coun
         notices = data.get("notices", [])
         results = []
         for n in notices[:count]:
-            results.append({
-                "notice_id": n.get("ND", ""),
-                "title": n.get("notice-title", ""),
-                "publication_date": n.get("publication-date", ""),
-                "organization": n.get("organisation-name-buyer", ""),
-                "org_national_id": n.get("organisation-identifier-buyer", ""),
-            })
+            notice_id = n.get("ND", "")
+            pub_date = n.get("publication-date", "")
+            results.append(build_evidence(
+                source="ted",
+                official=True,
+                confidence=0.9,
+                title=n.get("notice-title", ""),
+                date=pub_date,
+                url=f"https://ted.europa.eu/en/notice/-/detail/{notice_id}" if notice_id else "",
+                entity=n.get("organisation-identifier-buyer", "") or target,
+                raw={
+                    "notice_id": notice_id,
+                    "organization": n.get("organisation-name-buyer", ""),
+                    "org_national_id": n.get("organisation-identifier-buyer", ""),
+                },
+                query=target,
+            ))
         return results, None
     except Exception as e:
         msg = str(e)
@@ -91,15 +102,17 @@ def main() -> None:
             return
         lines = [f"**TED — Licitaciones UE para {target}**\n"]
         for i, r in enumerate(results, 1):
+            raw = r.get("raw", {})
             lines.append(f"**{i}. {r['title']}**")
-            lines.append(f"Fecha: {r['publication_date']} | Org: {r['organization']} ({r['org_national_id']})")
-            lines.append(f"ID: {r['notice_id']}\n")
+            lines.append(f"Fecha: {r['date']} | Org: {raw.get('organization', '')} ({raw.get('org_national_id', '')})")
+            lines.append(f"ID: {raw.get('notice_id', '')}\n")
         if not results:
             lines.append("No se encontraron resultados.")
         write_response({
             "success": True, "request_id": request_id,
             "content": [{"type": "text", "text": "\n".join(lines)}],
-            "structured_content": {"source": "ted", "target": target, "results": results, "count": len(results)},
+            "structured_content": build_search_result(
+                source="ted", target=target, results=results),
         })
     except json.JSONDecodeError:
         write_response({"success": False, "request_id": "",

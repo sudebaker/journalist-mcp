@@ -8,6 +8,7 @@ from typing import Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
 from common.http import request_with_retry, REQUESTS_AVAILABLE
+from common.evidence import build_evidence, build_search_result
 
 logger = get_logger(__name__, "boe_search")
 
@@ -66,12 +67,19 @@ def search_boe(target: str, target_type: str, date_from: str, date_to: str):
         items = fetch_boe_day(d)
         for item in items:
             if matches_target(item, target, target_type):
-                results.append({
-                    "date": d,
-                    "titulo": item.get("titulo", ""),
-                    "url": item.get("url", ""),
-                    "contenido": item.get("contenido", "")[:300],
-                })
+                url = item.get("url", "")
+                titulo = item.get("titulo", "")
+                results.append(build_evidence(
+                    source="boe",
+                    official=True,
+                    confidence=0.9,
+                    title=titulo,
+                    date=d,
+                    url=url,
+                    description=item.get("contenido", "")[:300],
+                    entity=target,
+                    query=target,
+                ))
     return results, None
 
 
@@ -101,16 +109,17 @@ def main() -> None:
         lines = [f"**BOE — Disposiciones y anuncios para {target}**\n"]
         for r in results:
             lines.append(f"Fecha: {r['date']}")
-            lines.append(f"**{r['titulo']}**")
-            if r["contenido"]:
-                lines.append(r["contenido"])
+            lines.append(f"**{r['title']}**")
+            if r.get("description"):
+                lines.append(r["description"])
             lines.append(f"URL: {r['url']}\n")
         if not results:
             lines.append("No se encontraron resultados.")
         write_response({
             "success": True, "request_id": request_id,
             "content": [{"type": "text", "text": "\n".join(lines)}],
-            "structured_content": {"source": "boe", "target": target, "results": results, "count": len(results)},
+            "structured_content": build_search_result(
+                source="boe", target=target, results=results),
         })
     except json.JSONDecodeError:
         write_response({"success": False, "request_id": "",

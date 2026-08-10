@@ -237,7 +237,9 @@ def main() -> None:
             "success": True, "request_id": request_id,
             "content": [{"type": "text", "text": "\n".join(lines)}],
             "structured_content": {
-                "source": SOURCE, "official": True, "confidence": 0.9,
+                "source": SOURCE, "target": target,
+                "official": True, "confidence": 0.9,
+                "evidence_type": "official_record",
                 "results": results, "count": len(results),
                 "retrieved_at": retrieved_at, "query": target,
             },
