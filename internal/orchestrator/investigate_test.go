@@ -40,9 +40,20 @@ func TestInvestigateUsesProvidedSources(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	// nonexistent_tool not in config, so 0 sources
-	if len(result.SourceResults) != 0 {
-		t.Errorf("expected 0 sources, got %d", len(result.SourceResults))
+	// nonexistent_tool not in config: reported as a failed source with a
+	// distinguishable error code instead of being silently dropped.
+	if len(result.SourceResults) != 1 {
+		t.Fatalf("expected 1 source result, got %d: %v", len(result.SourceResults), result.SourceResults)
+	}
+	sr := result.SourceResults[0]
+	if sr.Source != "nonexistent_tool" {
+		t.Errorf("expected source nonexistent_tool, got %q", sr.Source)
+	}
+	if sr.Success {
+		t.Errorf("expected success=false for unconfigured source")
+	}
+	if sr.Error != "source tool not configured" {
+		t.Errorf("expected descriptive error, got %q", sr.Error)
 	}
 }
 
@@ -90,6 +101,54 @@ func TestResolveSourcesKeepsExplicitRequest(t *testing.T) {
 	}
 	if sources[0] != "boe_search" || sources[1] != "custom_thing" {
 		t.Errorf("resolveSources should return requested unchanged, got %v", sources)
+	}
+}
+
+func TestResultsCountUsesEnvelopeCount(t *testing.T) {
+	if got := resultsCount(map[string]interface{}{"count": 4.0, "results": []interface{}{}}); got != 4 {
+		t.Errorf("expected 4 from envelope count, got %d", got)
+	}
+	if got := resultsCount(map[string]interface{}{"results": []interface{}{1, 2, 3}}); got != 3 {
+		t.Errorf("expected 3 from results fallback, got %d", got)
+	}
+	if got := resultsCount(nil); got != 0 {
+		t.Errorf("expected 0 for nil data, got %d", got)
+	}
+}
+
+func TestSourceOfficialDefaultsFalse(t *testing.T) {
+	if sourceOfficial(map[string]interface{}{"official": true}) != true {
+		t.Error("expected official=true when declared")
+	}
+	if sourceOfficial(map[string]interface{}{}) != false {
+		t.Error("expected official=false when absent (e.g. searxng)")
+	}
+	if sourceOfficial(nil) != false {
+		t.Error("expected official=false for nil data")
+	}
+}
+
+func TestCountUniqueDeduplicatesDeterministically(t *testing.T) {
+	seen := make(map[string]struct{})
+	first := map[string]interface{}{
+		"results": []interface{}{
+			map[string]interface{}{"id": "aaa"},
+			map[string]interface{}{"id": "bbb"},
+		},
+	}
+	second := map[string]interface{}{
+		"results": []interface{}{
+			map[string]interface{}{"id": "bbb"}, // same record from another source
+			map[string]interface{}{"id": "ccc"},
+		},
+	}
+	count, removed := countUnique(first, &seen)
+	if count != 2 || removed != 0 {
+		t.Errorf("first source: count=%d removed=%d, want 2/0", count, removed)
+	}
+	count, removed = countUnique(second, &seen)
+	if count != 1 || removed != 1 {
+		t.Errorf("second source: count=%d removed=%d, want 1/1", count, removed)
 	}
 }
 
