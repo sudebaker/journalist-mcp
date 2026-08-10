@@ -92,6 +92,10 @@ go build ./cmd/server/ && go test ./... -count=1
 # Python tools (offline-safe tests)
 python3 -m pytest tests/common -q
 python3 tests/tools/test_doue_search.py     # offline; live only with EUR-LEX creds
+# Deterministic source-contract fixtures (no network)
+python3 tests/tools/test_boe_search.py
+python3 tests/tools/test_borme_search.py
+python3 tests/tools/test_ted_search.py
 ```
 
 ## Configuration
@@ -147,6 +151,65 @@ Rate limiting and proxy trust live in config (`rate_limit_rps`,
   resolution).
 - **secret-scan** — fails if known insecure default credentials appear outside
   the denylist source/tests.
+
+## Source contract (`*_search` tools)
+
+Every `*_search` tool returns a consistent `structured_content` envelope so the
+orchestrator can aggregate, deduplicate and compare sources:
+
+```json
+{
+  "source": "boe",
+  "target": "B12345678",
+  "results": [],
+  "count": 0,
+  "official": true,
+  "evidence_type": "official_record"
+}
+```
+
+Each item in `results` is an **Evidence** record built by
+`tools/common/evidence.py`:
+
+| Field           | Meaning                                                        |
+|-----------------|----------------------------------------------------------------|
+| `id`            | Deterministic `sha256(url|date|title)[:16]` — stable dedup key |
+| `source`        | Source identifier                                              |
+| `official`      | Trusted/official vs. generic (e.g. search engines)             |
+| `confidence`    | 0.0–1.0                                                        |
+| `title`, `date`, `url` | Core identifying fields                                |
+| `entity`        | Referenced entity (NIF/CIF/name) — optional                    |
+| `evidence_type` | Semantic type — optional                                       |
+| `raw`           | Source-specific fields preserved verbatim — optional           |
+
+Contract rules:
+
+- `count == len(results)`; empty search is `success: true` with `results: []`.
+- Optional fields are omitted rather than invented.
+- `id` is stable across runs and sources, so the orchestrator can detect the
+  same record published by two sources and count it once (`duplicates_removed`).
+
+### Aggregation (`journalist_investigate`)
+
+The orchestrator runs every `*_search` source in parallel and returns, per
+source: `count`, `duration_ms`, `official`, `error_code`, and
+`duplicates_removed`. `total_results` is the number of **unique records** (not
+the number of sources that answered). A failing source never cancels the
+others; each source keeps its configured order in the response.
+
+### Adding a new search source
+
+1. Create `tools/<name>_search/main.py` + `tool.yaml` following an existing
+   source (e.g. `tools/ted_search`).
+2. Emit evidence via `build_evidence(...)` and the envelope via
+   `build_search_result(...)` from `tools/common/evidence.py`.
+3. Map your source-specific fields into `raw`; keep `title`, `date`, `url`
+   populated so `id` is meaningful.
+4. Add deterministic fixtures in `tests/tools/test_<name>_search.py`
+   (success, empty, HTTP error, timeout, changed-field tolerance) and register
+   them in `.github/workflows/ci.yml`.
+5. The orchestrator picks the tool up automatically (any tool whose name ends
+   in `_search`); no Go change needed unless the tool needs special args.
 
 ## Backups
 

@@ -42,6 +42,14 @@ jobs:
         run: pip install --no-cache-dir -r deployments/requirements.txt pytest
       - name: Offline unit tests (tests/common)
         run: python -m pytest tests/common -q
+      - name: Offline unit tests (search tools, deterministic fixtures)
+        run: |
+          for runner in tests/tools/test_boe_search.py \
+                        tests/tools/test_borme_search.py \
+                        tests/tools/test_ted_search.py; do
+            echo "=== $runner ==="
+            python3 "$runner"
+          done
       - name: Offline smoke (DOUE without credentials)
         run: python3 tests/tools/test_doue_search.py
 
