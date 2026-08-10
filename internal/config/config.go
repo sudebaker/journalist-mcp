@@ -69,6 +69,10 @@ type ServerConfig struct {
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 	// AllowedOrigins is the list of permitted CORS origins (empty = all)
 	AllowedOrigins []string `yaml:"allowed_origins"`
+	// TrustedProxies is the list of CIDRs allowed to supply X-Forwarded-For for
+	// rate limiting. Empty = never trust the header (secure default). Add your
+	// reverse proxy subnets here when running behind one.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // ExecutionConfig contains settings that control how tools are executed,
@@ -292,6 +296,11 @@ func Load(path string) (*Config, error) {
 	// Expand environment variables in the environment map
 	if cfg.Execution.Environment != nil {
 		cfg.Execution.Environment = expandEnvVarsInMap(cfg.Execution.Environment)
+	}
+
+	// Reject insecure default credentials that survived env expansion.
+	if err := ValidateSecrets(cfg.Execution.Environment); err != nil {
+		return nil, err
 	}
 
 	// Set default timeouts for tools

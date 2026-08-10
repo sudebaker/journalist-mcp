@@ -5,6 +5,10 @@ server:
   base_url: "${BASE_URL:-http://localhost:8080}"
   rate_limit_rps: 50
   rate_limit_burst: 100
+  # CIDRs autorizados para confiar en X-Forwarded-For (rate limiting).
+  # Vacío = no confiar en el header (seguro por defecto). Añade tu subred de
+  # reverse proxy aquí si despliegas detrás de uno.
+  trusted_proxies: []
 
 execution:
   default_timeout: "300s"
@@ -16,10 +20,10 @@ execution:
   tools_append: "${TOOLS_APPEND:-true}"
   environment:
     BASE_URL: "${BASE_URL:-http://localhost:8080}"
-    DATABASE_URL: "${DATABASE_URL:-postgresql://mcp:mcp@postgres:5432/knowledge}"
+    DATABASE_URL: "${DATABASE_URL:-}"
     RUSTFS_ENDPOINT: "${RUSTFS_ENDPOINT:-rustfs:9000}"
-    RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:-rustfsadmin}"
-    RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:-rustfsadmin}"
+    RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:-}"
+    RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:-}"
     SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
     CRAWL4AI_URL: "${CRAWL4AI_URL:-http://crawl4ai:11235}"
     CRAWL4AI_TOKEN: "${CRAWL4AI_TOKEN:-}"
@@ -27,7 +31,7 @@ execution:
     MEMGRAPH_USERNAME: "${MEMGRAPH_USERNAME:-}"
     MEMGRAPH_PASSWORD: "${MEMGRAPH_PASSWORD:-}"
     OPENSEARCH_URL: "${OPENSEARCH_URL:-http://opensearch:9200}"
-    LLM_API_URL: "${LLM_API_URL:-http://100.72.34.100:11434}"
+    LLM_API_URL: "${LLM_API_URL:-http://localhost:11434}"
     LLM_MODEL: "${LLM_MODEL:-deepseek/deepseek-chat-v3-0324}"
     WHISPER_URL: "${WHISPER_URL:-http://whisper:8000}"
     TEXTFLOW_ENDPOINT: "${TEXTFLOW_ENDPOINT:-}"

@@ -222,6 +222,7 @@ func main() {
 		RateLimitRPS:   cfg.Server.RateLimitRPS,
 		RateLimitBurst: cfg.Server.RateLimitBurst,
 		AllowedOrigins: cfg.Server.AllowedOrigins,
+		TrustedProxies: cfg.Server.TrustedProxies,
 		Tracer:         tracer,
 		Upload:         cfg.Upload,
 		FilesDir:       filepath.Join(cfg.Execution.WorkingDir, cfg.Execution.ReportsDir),

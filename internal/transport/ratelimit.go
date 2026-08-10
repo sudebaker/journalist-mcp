@@ -2,7 +2,9 @@ package transport
 
 import (
 	"errors"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +31,7 @@ type RateLimiter struct {
 	cleanupStop   chan struct{}           // Cleanup goroutine shutdown signal
 	maxIdleTime   time.Duration           // Inactive client TTL before cleanup
 	stopOnce      sync.Once               // Ensures cleanup goroutine stops only once
+	trustedProxies []netip.Prefix         // CIDRs allowed to supply X-Forwarded-For
 }
 
 // tokenBucket represents a client's rate limiting state using the token bucket algorithm.
@@ -55,7 +58,7 @@ type tokenBucket struct {
 // Example:
 //
 //	limiter := NewRateLimiter(10.0, 20) // 10 req/s sustained, burst up to 20
-func NewRateLimiter(rps float64, burst int) *RateLimiter {
+func NewRateLimiter(rps float64, burst int, trustedProxies ...string) *RateLimiter {
 	if rps <= 0 {
 		rps = 1
 	}
@@ -68,6 +71,11 @@ func NewRateLimiter(rps float64, burst int) *RateLimiter {
 		burst:       burst,
 		cleanupStop: make(chan struct{}),
 		maxIdleTime: 10 * time.Minute,
+	}
+	for _, cidr := range trustedProxies {
+		if prefix, err := netip.ParsePrefix(cidr); err == nil {
+			rl.trustedProxies = append(rl.trustedProxies, prefix)
+		}
 	}
 	rl.startCleanup()
 	return rl
@@ -182,12 +190,13 @@ func (rl *RateLimiter) allowN(clientID string, n int) error {
 //	HTTP middleware that checks rate limits before passing requests
 //
 // Behavior:
-//   - Extracts client ID from X-Forwarded-For header or RemoteAddr
+//   - Extracts client ID from X-Forwarded-For header only when the direct peer is
+//     a trusted proxy, otherwise uses RemoteAddr (avoids header spoofing)
 //   - If rate limited, responds with 429 Too Many Requests
 //   - Retry-After header set with suggested wait time
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientID := getClientID(r)
+		clientID := rl.getClientID(r)
 
 		err := rl.allowN(clientID, 1)
 		if err != nil {
@@ -205,17 +214,44 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// getClientID extracts client identifier from the HTTP request.
-// Uses X-Forwarded-For header if present (for proxied requests),
-// otherwise falls back to RemoteAddr.
-func getClientID(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if idx := strings.Index(xff, ","); idx != -1 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return strings.TrimSpace(xff)
+// getClientID extracts the client identifier from the HTTP request.
+//
+// X-Forwarded-For is only honored when the direct peer IP is listed in
+// trustedProxies. Otherwise (or when no XFF header is present) the raw
+// RemoteAddr is used, preventing spoofed headers from bypassing rate limits.
+func (rl *RateLimiter) getClientID(r *http.Request) string {
+	remoteHost := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		remoteHost = host
 	}
-	return r.RemoteAddr
+
+	if rl.trustsProxy(remoteHost) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if idx := strings.Index(xff, ","); idx != -1 {
+				return strings.TrimSpace(xff[:idx])
+			}
+			return strings.TrimSpace(xff)
+		}
+	}
+	return remoteHost
+}
+
+// trustsProxy reports whether remoteHost belongs to a configured trusted proxy
+// CIDR. Returns false when no trusted proxies are configured (secure default).
+func (rl *RateLimiter) trustsProxy(remoteHost string) bool {
+	if len(rl.trustedProxies) == 0 {
+		return false
+	}
+	addr, err := netip.ParseAddr(remoteHost)
+	if err != nil {
+		return false
+	}
+	for _, prefix := range rl.trustedProxies {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // RateLimitExceededError is returned when a client exceeds their rate limit.

@@ -8,6 +8,12 @@
 #   internal  — Red aislada (internal: true). Servicios de datos sin acceso a internet.
 #   external  — Red con acceso a internet. Servicios públicos/proxy.
 #   journalist-mcp es el único puente entre ambas.
+#
+# SECRETOS: las variables críticas usan ${VAR:?...} — el stack NO arranca sin
+# deployments/.env. Copia .env.example con credenciales reales.
+#
+# TODO(fase 2): pinar versiones de imágenes (hoy algunas usan :latest) y generar
+# lockfile de dependencias Python/Go para builds reproducibles.
 
 services:
 
@@ -23,11 +29,13 @@ services:
       - "8080:8080"
     environment:
       BASE_URL: ${BASE_URL:-http://localhost:8080}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://mcp:mcppassword@postgres:5432/knowledge}
+      DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL en deployments/.env}"
       RUSTFS_ENDPOINT: ${RUSTFS_ENDPOINT:-rustfs:9000}
-      RUSTFS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY_ID:-rustfsadmin}
-      RUSTFS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:?set RUSTFS_ACCESS_KEY_ID en deployments/.env}"
+      RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:?set RUSTFS_SECRET_ACCESS_KEY en deployments/.env}"
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      MCP_UPLOAD_API_KEY: ${MCP_UPLOAD_API_KEY:-}
+      MCP_API_KEY: ${MCP_API_KEY:-}
       CRAWL4AI_URL: ${CRAWL4AI_URL:-http://crawl4ai:11235}
       CRAWL4AI_TOKEN: ${CRAWL4AI_TOKEN:-}
       MEMGRAPH_URL: ${MEMGRAPH_URL:-bolt://memgraph:7687}
@@ -84,7 +92,7 @@ services:
     container_name: mcp-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mcp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcppassword}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD en deployments/.env}"
       POSTGRES_DB: ${POSTGRES_DB:-knowledge}
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -134,10 +142,10 @@ services:
     image: rustfs/rustfs:latest
     container_name: rustfs
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     environment:
-      RUSTFS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY_ID:-rustfsadmin}
-      RUSTFS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:?set RUSTFS_ACCESS_KEY_ID en deployments/.env}"
+      RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:?set RUSTFS_SECRET_ACCESS_KEY en deployments/.env}"
     volumes:
       - rustfs-data:/data
     networks:
@@ -165,7 +173,7 @@ services:
       - ocu-investigacion
     restart: unless-stopped
     ports:
-      - "7687:7687"
+      - "127.0.0.1:7687:7687"
     volumes:
       - memgraph-data:/var/lib/memgraph
       - memgraph-logs:/var/log/memgraph
@@ -203,8 +211,8 @@ services:
       - ocu-investigacion
     restart: unless-stopped
     ports:
-      - "9200:9200"
-      - "9600:9600"
+      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:9600:9600"
     volumes:
       - opensearch-data:/usr/share/opensearch/data
     environment:
@@ -249,10 +257,10 @@ services:
     image: unclecode/crawl4ai:latest
     container_name: crawl4ai
     ports:
-      - "11235:11235"
+      - "127.0.0.1:11235:11235"
     shm_size: "1gb"
     environment:
-      CRAWL4AI_API_TOKEN: "${CRAWL4AI_TOKEN:-crawl4ai-dev-token-abc123def456}"
+      CRAWL4AI_API_TOKEN: "${CRAWL4AI_TOKEN:?set CRAWL4AI_TOKEN en deployments/.env}"
     networks:
       - external
     deploy:
@@ -277,6 +285,7 @@ services:
     environment:
       - BASE_URL=http://searxng:8080
       - INSTANCE_NAME=SearXNG-MCP
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?set SEARXNG_SECRET en deployments/.env}
     volumes:
       - ./searxng-settings.yml:/etc/searxng/settings.yml:ro
     networks:

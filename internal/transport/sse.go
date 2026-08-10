@@ -60,44 +60,52 @@ import (
 // uploadAPIKey is read from MCP_UPLOAD_API_KEY env var for upload endpoint authentication.
 var uploadAPIKey string
 
+// mcpAPIKey is read from MCP_API_KEY env var for /mcp endpoint authentication.
+// Empty = legacy/dev permissive mode (endpoint unprotected).
+var mcpAPIKey string
+
 func init() {
 	uploadAPIKey = os.Getenv("MCP_UPLOAD_API_KEY")
+	mcpAPIKey = os.Getenv("MCP_API_KEY")
 }
 
-// authMiddleware wraps a handler with API key authentication.
+// bearerAuthHandler wraps a handler with optional bearer API key authentication.
+// When apiKey is empty, requests pass through (legacy/dev compatibility) and a
+// warning is logged. When set, the Authorization header must contain "Bearer <key>".
+func bearerAuthHandler(apiKey, name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if apiKey == "" {
+				log.Warn().Str("endpoint", name).Msg("API key not set - endpoint is unprotected")
+				next.ServeHTTP(w, r)
+				return
+			}
+			auth := r.Header.Get("Authorization")
+			if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+				unauthorized(w, "missing or invalid authorization header")
+				return
+			}
+			token := strings.TrimPrefix(auth, "Bearer ")
+			if token != apiKey {
+				unauthorized(w, "invalid API key")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func unauthorized(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// authMiddleware wraps a handler with API key authentication for /upload.
 // Requires header: Authorization: Bearer <api_key>
 // If MCP_UPLOAD_API_KEY is not set, authentication is skipped (for backward compatibility).
 func (s *MCPServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Skip auth if no key is configured (backward compatibility)
-		if uploadAPIKey == "" {
-			log.Warn().Msg("MCP_UPLOAD_API_KEY not set - /upload endpoint is unprotected")
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		auth := r.Header.Get("Authorization")
-		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "missing or invalid authorization header",
-			})
-			return
-		}
-
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token != uploadAPIKey {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "invalid API key",
-			})
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	}
+	return bearerAuthHandler(uploadAPIKey, "/upload")(next).ServeHTTP
 }
 
 // MCPServer wraps the mcp-go library server with additional functionality.
@@ -138,6 +146,8 @@ type MCPConfig struct {
 	RateLimitBurst int
 	// AllowedOrigins is the CORS origin whitelist (nil/empty = all)
 	AllowedOrigins []string
+	// TrustedProxies are CIDRs whose X-Forwarded-For is honored for rate limiting
+	TrustedProxies []string
 	// Tracer is the distributed tracing instance (nil = no-op)
 	Tracer *tracing.Tracer
 	// Upload is the file upload configuration
@@ -183,7 +193,7 @@ func NewMCPServer(mcpServer *server.MCPServer, cfg MCPConfig) *MCPServer {
 
 	var rateLimiter *RateLimiter
 	if cfg.RateLimitRPS > 0 {
-		rateLimiter = NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+		rateLimiter = NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst, cfg.TrustedProxies...)
 	}
 
 	tracer := cfg.Tracer
@@ -259,6 +269,15 @@ func (s *MCPServer) Start() error {
 		streamHandler = s.rateLimiter.Middleware(streamHandler)
 	}
 	streamHandler = CORSMiddleware(s.allowedOrigins)(streamHandler)
+
+	// Protect /mcp with optional bearer auth (MCP_API_KEY). Applied inside CORS
+	// so preflight OPTIONS are handled by the CORS layer first.
+	streamHandler = bearerAuthHandler(mcpAPIKey, "/mcp")(streamHandler)
+	if mcpAPIKey != "" {
+		log.Info().Msg("MCP API key authentication enabled for /mcp")
+	} else {
+		log.Warn().Msg("MCP_API_KEY not set - /mcp endpoint is unprotected")
+	}
 
 	// Build multi-handler chain: first the custom mux, then the stream handler
 	sanitizedMux := sanitizePathMiddleware(mux)

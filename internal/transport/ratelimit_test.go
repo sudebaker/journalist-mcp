@@ -62,6 +62,57 @@ func TestRateLimiter_Middleware(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_XFFIgnoredWithoutTrustedProxy(t *testing.T) {
+	rl := NewRateLimiter(1, 1)
+
+	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	spoof := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.RemoteAddr = "198.51.100.7:4444"
+		req.Header.Set("X-Forwarded-For", "10.0.0.1")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	if resp := spoof(); resp.Code != http.StatusOK {
+		t.Errorf("Expected first request status 200, got %d", resp.Code)
+	}
+	if resp := spoof(); resp.Code != http.StatusTooManyRequests {
+		t.Error("Expected spoofed XFF to NOT bypass the rate limit (same underlying client)")
+	}
+}
+
+func TestRateLimiter_XFFHonoredFromTrustedProxy(t *testing.T) {
+	rl := NewRateLimiter(1, 1, "127.0.0.1/32")
+
+	handler := rl.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "127.0.0.1:4444"
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Different XFF behind the trusted proxy → a different client to the limiter.
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.RemoteAddr = "127.0.0.1:4444"
+	req2.Header.Set("X-Forwarded-For", "10.0.0.2")
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Error("Expected trusted-proxy XFF to distinguish clients")
+	}
+}
+
 func TestRateLimiter_MiddlewareExceeds(t *testing.T) {
 	rl := NewRateLimiter(1, 1)
 

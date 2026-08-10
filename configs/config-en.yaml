@@ -10,6 +10,10 @@ server:
   base_url: "${BASE_URL:-http://localhost:8080}"
   rate_limit_rps: 50
   rate_limit_burst: 100
+  # CIDRs trusted to supply X-Forwarded-For (rate limiting).
+  # Empty = never trust the header (secure default). Add your reverse proxy
+  # subnets here when deploying behind one.
+  trusted_proxies: []
 
 execution:
   default_timeout: "300s"
@@ -23,8 +27,8 @@ execution:
     BASE_URL: "${BASE_URL:-http://localhost:8080}"
     DATABASE_URL: "${DATABASE_URL:-}"
     RUSTFS_ENDPOINT: "${RUSTFS_ENDPOINT:-rustfs:9000}"
-    RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:-rustfsadmin}"
-    RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:-rustfsadmin}"
+    RUSTFS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY_ID:-}"
+    RUSTFS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_ACCESS_KEY:-}"
     SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
     CRAWL4AI_URL: "${CRAWL4AI_URL:-http://crawl4ai:11235}"
     CRAWL4AI_TOKEN: "${CRAWL4AI_TOKEN:-}"
