@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""
-List Sources Tool for MCP Orchestrator.
-Lists available data sources and their status.
+"""List Sources Tool for MCP Orchestrator.
+
+Discovers available data sources dynamically by scanning sibling tool manifests
+(tools/*/tool.yaml). A tool is considered a data source when its name ends with
+_search, _fetch or _render.
 """
 
+import glob
 import json
 import os
 import sys
@@ -15,21 +18,51 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "list_sources")
 
-SOURCES = [
-    {"name": "boe", "description": "BOE - Boletín Oficial del Estado", "status": "available"},
-    {"name": "borme", "description": "BORME - Boletín Oficial del Registro Mercantil", "status": "available"},
-    {"name": "bdns", "description": "BDNS - Base de Datos Nacional de Subvenciones", "status": "available"},
-    {"name": "ckan", "description": "CKAN - Catálogos de datos abiertos", "status": "available"},
-    {"name": "cohesion", "description": "Cohesion Data - Fondos de cohesión europeos", "status": "available"},
-    {"name": "contratacion", "description": "Contratación del Sector Público", "status": "available"},
-    {"name": "datosgob", "description": "datos.gob.es - Portal de datos abiertos del Gobierno", "status": "available"},
-    {"name": "fts", "description": "FTS - Financial Tracking Service", "status": "available"},
-    {"name": "pscp", "description": "PSCP - Plataforma de Contratación del Sector Público", "status": "available"},
-    {"name": "ted", "description": "TED - Tenders Electronic Daily", "status": "available"},
-    {"name": "transparency", "description": "Transparency Portal - Portal de transparencia AGE", "status": "available"},
-    {"name": "searxng_search", "description": "SearXNG - Búsqueda web privada", "status": "available"},
-    {"name": "crawl4ai_render", "description": "Crawl4AI - Renderizado de páginas web con anti-bot y extracción de Markdown/HTML", "status": "available"},
-]
+_SOURCE_SUFFIXES = ("_search", "_fetch", "_render")
+
+
+def _is_source_tool(name: str) -> bool:
+    """Return True if the tool name identifies a data-source tool."""
+    return name.endswith(_SOURCE_SUFFIXES)
+
+
+def _discover_sources() -> list[dict[str, str]]:
+    """Scan tool manifests and return data sources sorted by name."""
+    tools_dir = os.path.dirname(os.path.dirname(__file__))
+    manifest_pattern = os.path.join(tools_dir, "*", "tool.yaml")
+
+    sources: list[dict[str, str]] = []
+    for manifest_path in glob.glob(manifest_pattern):
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                import yaml
+
+                manifest = yaml.safe_load(f)
+        except Exception as exc:
+            logger.warning(
+                "failed_to_read_manifest",
+                extra_data={"path": manifest_path, "error": str(exc)},
+            )
+            continue
+
+        if not isinstance(manifest, dict):
+            continue
+
+        name = manifest.get("name", "")
+        description = manifest.get("description", "")
+        if not isinstance(name, str) or not isinstance(description, str):
+            continue
+        if not _is_source_tool(name):
+            continue
+
+        sources.append({
+            "name": name,
+            "description": description,
+            "status": "available",
+        })
+
+    sources.sort(key=lambda s: s["name"])
+    return sources
 
 
 def read_request() -> dict[str, Any]:
@@ -46,10 +79,12 @@ def main() -> None:
         request = read_request()
         request_id = request.get("request_id", "")
 
+        sources = _discover_sources()
+
         write_response({
             "success": True,
             "request_id": request_id,
-            "content": [{"type": "text", "text": json.dumps(SOURCES, indent=2)}],
+            "content": [{"type": "text", "text": json.dumps(sources, indent=2)}],
             "metadata": {"tool": "list_sources"},
         })
 
