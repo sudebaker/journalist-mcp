@@ -22,6 +22,7 @@ logger = get_logger(__name__, "web_scraper")
 
 try:
     import requests
+    from common.http import request_with_retry
 
     REQUESTS_AVAILABLE = True
 except ImportError:
@@ -170,9 +171,8 @@ def fetch_url(
             "Upgrade-Insecure-Requests": "1",
         }
 
-        session = requests.Session()
-        response = session.get(
-            url, headers=headers, timeout=timeout, allow_redirects=False
+        response = request_with_retry(
+            "GET", url, headers=headers, timeout=timeout, allow_redirects=False
         )
 
         if response.status_code in (301, 302, 303, 307, 308):
@@ -182,7 +182,8 @@ def fetch_url(
                 if not is_valid:
                     return None, err
 
-                response = session.get(
+                response = request_with_retry(
+                    "GET",
                     redirect_url,
                     headers=headers,
                     timeout=timeout,
