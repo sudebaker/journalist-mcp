@@ -22,6 +22,7 @@ logger = get_logger(__name__, "crawl4ai_render")
 
 try:
     import requests as _requests
+    from common.http import request_with_retry
     REQUESTS_AVAILABLE = True
     requests = _requests  # alias for type-checker friendliness
 except ImportError:
@@ -117,7 +118,8 @@ def render_page(
     headers = _build_headers()
 
     try:
-        response = requests.post(
+        response = request_with_retry(
+            "POST",
             f"{CRAWL4AI_URL}/crawl",
             json=payload,
             headers=headers,

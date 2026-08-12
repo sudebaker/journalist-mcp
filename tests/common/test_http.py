@@ -29,6 +29,19 @@ def _local_server():
             self.send_header("Content-Length", "0")
             self.end_headers()
 
+        def do_POST(self):
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            if "files_and_data" in self.path:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def log_message(self, *args):
             pass
 
@@ -69,6 +82,43 @@ def test_user_agent_constant():
 
     assert "journalist-mcp" in _USER_AGENT
     assert "github.com/sudebaker" in _USER_AGENT
+
+
+@pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
+def test_request_with_retry_post_files_and_data():
+    server, url = _local_server()
+    try:
+        response = request_with_retry(
+            "POST",
+            f"{url}files_and_data",
+            data={"model": "whisper"},
+            files={"file": ("test.mp3", b"audio", "audio/mpeg")},
+            timeout=5,
+            max_retries=2,
+        )
+        assert response.status_code == 200
+        assert b"whisper" in response.content
+        assert b"audio" in response.content
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
+def test_request_with_retry_allows_disabling_redirects():
+    server, url = _local_server()
+    try:
+        response = request_with_retry(
+            "GET",
+            url,
+            allow_redirects=False,
+            timeout=5,
+            max_retries=2,
+        )
+        assert response.status_code == 200
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_urllib3_retry_availability():

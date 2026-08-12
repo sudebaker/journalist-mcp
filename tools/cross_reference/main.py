@@ -47,10 +47,11 @@ except ImportError:
 
 try:
     import requests
-
+    from common.http import request_with_retry
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
+
 
 # ── Environment ──────────────────────────────────────────────────────────────
 
@@ -341,7 +342,8 @@ def query_searxng(
     query = context_queries.get(entity_type, f'"{entity_value}"')
 
     try:
-        response = requests.get(
+        response = request_with_retry(
+            "GET",
             f"{SEARXNG_URL}/search",
             params={
                 "q": query,

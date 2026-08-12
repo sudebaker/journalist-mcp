@@ -100,9 +100,11 @@ def _simple_retry_request(
     json_body: Optional[Any],
     headers: Dict[str, Any],
     data: Optional[Any],
+    files: Optional[Any],
     timeout: int,
     max_retries: int,
     stream: bool = False,
+    allow_redirects: bool = True,
 ) -> "requests.Response":
     """Simple retry loop fallback when urllib3 Retry is unavailable.
 
@@ -122,8 +124,10 @@ def _simple_retry_request(
                 json=json_body,
                 headers=headers,
                 data=data,
+                files=files,
                 timeout=timeout,
                 stream=stream,
+                allow_redirects=allow_redirects,
             )
             last_response = response
 
@@ -187,10 +191,12 @@ def request_with_retry(
     json: Optional[Any] = None,
     headers: Optional[Dict[str, Any]] = None,
     data: Optional[Any] = None,
+    files: Optional[Any] = None,
     timeout: int = 30,
     max_retries: int = 3,
-        stream: bool = False,
-    ) -> "requests.Response":
+    stream: bool = False,
+    allow_redirects: bool = True,
+) -> "requests.Response":
     """Perform an HTTP request with retry/backoff and 429/503 Retry-After handling.
 
     Uses urllib3 Retry when available (with 429/503 Retry-After support).
@@ -203,9 +209,11 @@ def request_with_retry(
         json: JSON body
         headers: Additional headers (merged with defaults)
         data: Raw request body
+        files: Multipart files (passed to requests as `files`)
         timeout: Request timeout in seconds
         max_retries: Maximum number of retry attempts
         stream: Stream the response body instead of buffering it in memory
+        allow_redirects: Follow HTTP redirects (default True)
 
     Returns:
         requests.Response. Does not raise on transient HTTP errors (429/5xx);
@@ -241,13 +249,15 @@ def request_with_retry(
             json=json,
             headers=request_headers,
             data=data,
+            files=files,
             timeout=timeout,
             stream=stream,
+            allow_redirects=allow_redirects,
         )
     else:
         response = _simple_retry_request(
             session, method, url, params, json, request_headers,
-            data, timeout, max_retries, stream,
+            data, files, timeout, max_retries, stream, allow_redirects,
         )
 
     duration = time.monotonic() - start_time

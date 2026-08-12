@@ -23,6 +23,7 @@ logger = get_logger(__name__, "transcribe")
 
 try:
     import requests
+    from common.http import request_with_retry
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -75,11 +76,12 @@ def transcribe_file(file_path: str, language: Optional[str] = None, response_for
             if language:
                 data["language"] = language
 
-            response = requests.post(
+            response = request_with_retry(
+                "POST",
                 f"{WHISPER_URL}/v1/audio/transcriptions",
                 files=files,
                 data=data,
-                timeout=DEFAULT_TIMEOUT
+                timeout=DEFAULT_TIMEOUT,
             )
 
         if response.status_code != 200:

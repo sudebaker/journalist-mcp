@@ -47,6 +47,7 @@ except ImportError:
 
 try:
     import requests as http_requests
+    from common.http import request_with_retry
 
     REQUESTS_AVAILABLE = True
 except ImportError:
@@ -224,7 +225,8 @@ def download_file(url: str) -> tuple[Optional[bytes], Optional[str], Optional[st
         return None, None, "requests library not installed"
 
     try:
-        resp = http_requests.get(
+        resp = request_with_retry(
+            "GET",
             url,
             timeout=60,
             stream=True,

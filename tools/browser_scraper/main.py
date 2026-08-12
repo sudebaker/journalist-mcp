@@ -25,6 +25,7 @@ logger = get_logger(__name__, "browser_scraper")
 
 try:
     import requests
+    from common.http import request_with_retry
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
@@ -189,7 +190,8 @@ def fetch_with_crawl4ai(
     crawl_url = f"{BROWSERLESS_URL.rstrip('/')}/crawl"
 
     try:
-        response = requests.post(
+        response = request_with_retry(
+            "POST",
             crawl_url,
             headers=headers,
             json=payload,
@@ -211,7 +213,8 @@ def fetch_with_crawl4ai(
         # Auth error — try query param token (MCP clients that can't set headers)
         if response.status_code in (401, 403) and BROWSERLESS_TOKEN:
             token_url = f"{crawl_url}?token={BROWSERLESS_TOKEN}"
-            response = requests.post(
+            response = request_with_retry(
+                "POST",
                 token_url,
                 headers={"Content-Type": "application/json"},
                 json=payload,
