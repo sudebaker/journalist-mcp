@@ -29,13 +29,7 @@ from common.structured_logging import get_logger  # noqa: E402
 
 logger = get_logger(__name__, "boe_fetch")
 
-try:
-    import requests as _requests  # noqa: F401
-    requests = _requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    requests = None  # type: ignore[assignment]
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 BOE_API_BASE = "https://www.boe.es/datosabiertos/api"
 DEFAULT_WORKERS = 4
@@ -97,8 +91,7 @@ def fetch_day(kind: str, boe_date: str, rate_limiter: "RateLimiter | None" = Non
         "items": [],
     }
     try:
-        assert requests is not None  # narrowed por REQUESTS_AVAILABLE arriba
-        resp = requests.get(url, headers={"Accept": "application/json"}, timeout=20)
+        resp = request_with_retry("GET", url, headers={"Accept": "application/json"}, timeout=20)
         record["status"] = resp.status_code
         if resp.status_code != 200:
             record["error"] = f"HTTP {resp.status_code}"
@@ -110,14 +103,14 @@ def fetch_day(kind: str, boe_date: str, rate_limiter: "RateLimiter | None" = Non
         # Aplanamos a una lista de items con contexto (sección, departamento, epígrafe).
         record["items"] = _flatten_sumario(data)
         record["count"] = len(record["items"])
-    except requests.exceptions.Timeout:
-        record["error"] = "timeout"
-    except requests.exceptions.RequestException as e:
-        record["error"] = f"request error: {e}"
     except json.JSONDecodeError:
         record["error"] = "invalid json response"
     except Exception as e:  # noqa: BLE001
-        record["error"] = f"unexpected: {e}"
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            record["error"] = "timeout"
+        else:
+            record["error"] = f"request error: {e}"
     return record
 
 

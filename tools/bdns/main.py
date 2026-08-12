@@ -23,11 +23,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "bdns_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 
 @dataclass(frozen=True)
@@ -168,15 +164,16 @@ def fetch_endpoint(endpoint: dict[str, Any], fecha_desde: str, fecha_hasta: str)
             "pageSize": min(MAX_RESULTS_PER_ENDPOINT // MAX_PAGES_PER_ENDPOINT, 50),
         }
         try:
-            resp = requests.get(  # type: ignore[name-defined]
-                url, params=params, timeout=PER_REQUEST_TIMEOUT,
+            resp = request_with_retry(
+                "GET", url, params=params, timeout=PER_REQUEST_TIMEOUT,
                 headers={"Accept": "application/json"},
             )
-        except requests.exceptions.Timeout:  # type: ignore[name-defined]
-            out["error"] = f"timeout after {PER_REQUEST_TIMEOUT}s"
-            break
-        except requests.exceptions.RequestException as e:  # type: ignore[name-defined]
-            out["error"] = f"request failed: {e}"
+        except Exception as e:  # noqa: BLE001
+            msg = str(e).lower()
+            if "timeout" in msg or "timed" in msg:
+                out["error"] = f"timeout after {PER_REQUEST_TIMEOUT}s"
+            else:
+                out["error"] = f"request failed: {e}"
             break
 
         out["status_code"] = resp.status_code

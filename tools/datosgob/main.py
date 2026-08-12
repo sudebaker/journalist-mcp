@@ -20,11 +20,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "datosgob_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 DATOSGOB_API_BASE = "https://datos.gob.es/apidata/catalog/dataset"
 DEFAULT_PAGE_SIZE = 50
@@ -101,7 +97,7 @@ def search_datosgob(query: str, rows: int) -> tuple[list[dict] | None, str | Non
         if not needle:
             params = {"_pageSize": str(rows), "_page": "0"}
             url = f"{DATOSGOB_API_BASE}?{urlencode(params)}"
-            resp = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
+            resp = request_with_retry("GET", url, headers=headers, timeout=HTTP_TIMEOUT)
             if resp.status_code != 200:
                 return None, f"datos.gob.es API returned HTTP {resp.status_code}"
             payload = resp.json()
@@ -111,7 +107,7 @@ def search_datosgob(query: str, rows: int) -> tuple[list[dict] | None, str | Non
         for page in range(MAX_SCAN_PAGES):
             params = {"_pageSize": str(DEFAULT_PAGE_SIZE), "_page": str(page)}
             url = f"{DATOSGOB_API_BASE}?{urlencode(params)}"
-            resp = requests.get(url, headers=headers, timeout=HTTP_TIMEOUT)
+            resp = request_with_retry("GET", url, headers=headers, timeout=HTTP_TIMEOUT)
             if resp.status_code != 200:
                 return None, f"datos.gob.es API returned HTTP {resp.status_code} on page {page}"
             payload = resp.json()
@@ -125,9 +121,10 @@ def search_datosgob(query: str, rows: int) -> tuple[list[dict] | None, str | Non
             if not items:
                 break  # catalog exhausted
         return matched, None
-    except requests.exceptions.Timeout:
-        return None, "datos.gob.es API timed out"
     except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return None, "datos.gob.es API timed out"
         return None, f"datos.gob.es fetch failed: {e}"
     finally:
         if needle:

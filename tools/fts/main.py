@@ -25,11 +25,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "fts_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 HDX_API_URL = "https://data.humdata.org/api/3/action"
 CSV_DOWNLOAD_TIMEOUT = 120
@@ -58,12 +54,13 @@ def fetch_dataset(name: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         return None, "requests library not available"
     url = f"{HDX_API_URL}/package_show"
     try:
-        resp = requests.get(url, params={"id": name}, timeout=30,
-                            headers={"Accept": "application/json",
-                                     "User-Agent": "journalist-mcp/fts_fetch"})
-    except requests.exceptions.Timeout:
-        return None, "HDX API timed out"
-    except requests.exceptions.RequestException as e:
+        resp = request_with_retry("GET", url, params={"id": name}, timeout=30,
+                                  headers={"Accept": "application/json",
+                                           "User-Agent": "journalist-mcp/fts_fetch"})
+    except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return None, "HDX API timed out"
         return None, f"HDX API request failed: {e}"
 
     if resp.status_code == 404:
@@ -108,11 +105,12 @@ def download_csv(url: str) -> Tuple[Optional[List[Dict[str, str]]], Optional[str
     if not REQUESTS_AVAILABLE:
         return None, "requests library not available"
     try:
-        resp = requests.get(url, timeout=CSV_DOWNLOAD_TIMEOUT, stream=True,
-                            headers={"User-Agent": "journalist-mcp/fts_fetch"})
-    except requests.exceptions.Timeout:
-        return None, "CSV download timed out"
-    except requests.exceptions.RequestException as e:
+        resp = request_with_retry("GET", url, timeout=CSV_DOWNLOAD_TIMEOUT, stream=True,
+                                  headers={"User-Agent": "journalist-mcp/fts_fetch"})
+    except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return None, "CSV download timed out"
         return None, f"CSV download failed: {e}"
 
     if resp.status_code != 200:

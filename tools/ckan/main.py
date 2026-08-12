@@ -19,11 +19,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "ckan_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 
 # Default interest tags for the journalist workflow.
@@ -93,12 +89,13 @@ def _search_portal(
     url = f"{portal_cfg['api_base']}/package_search?{urlencode(params)}"
 
     try:
-        resp = requests.get(url, timeout=timeout, headers={"Accept": "application/json"})
-    except requests.exceptions.Timeout:
-        return [], f"{portal_id}: timed out after {timeout}s"
-    except requests.exceptions.ConnectionError as e:
-        return [], f"{portal_id}: connection error ({type(e).__name__})"
+        resp = request_with_retry("GET", url, timeout=timeout, headers={"Accept": "application/json"})
     except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return [], f"{portal_id}: timed out after {timeout}s"
+        if "connection" in msg:
+            return [], f"{portal_id}: connection error ({type(e).__name__})"
         return [], f"{portal_id}: request failed ({type(e).__name__}: {e})"
 
     if resp.status_code != 200:

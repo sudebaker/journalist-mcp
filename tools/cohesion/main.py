@@ -26,13 +26,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "cohesion")
 
-try:
-    import requests as _requests
-    requests = _requests  # explicit rebind so static type checkers see it as bound
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    _requests = None  # type: ignore[assignment]
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 COHESION_DATASET_ID = "7twf-r3rc"
 COHESION_BASE_URL = (
@@ -121,8 +115,8 @@ def _latest_published_cycles(limit: int = 3) -> list[str]:
     if not REQUESTS_AVAILABLE:
         return []
     try:
-        resp = requests.get(
-            COHESION_BASE_URL,
+        resp = request_with_retry(
+            "GET", COHESION_BASE_URL,
             params={
                 "$select": "distinct tod_cycle",
                 "$order": "tod_cycle DESC",
@@ -131,7 +125,7 @@ def _latest_published_cycles(limit: int = 3) -> list[str]:
             timeout=REQUEST_TIMEOUT,
             headers={"Accept": "application/json"},
         )
-    except requests.exceptions.RequestException:
+    except Exception:
         return []
     if resp.status_code != 200:
         return []
@@ -193,17 +187,18 @@ def fetch_cohesion(
         "$order": order,
     }
     try:
-        resp = requests.get(
-            COHESION_BASE_URL,
+        resp = request_with_retry(
+            "GET", COHESION_BASE_URL,
             params=params,
             timeout=REQUEST_TIMEOUT,
             headers={"Accept": "application/json", "User-Agent": "journalist-mcp/cohesion/1.0"},
         )
-    except requests.exceptions.Timeout:
-        return None, "Cohesion API timed out"
-    except requests.exceptions.ConnectionError as exc:
-        return None, f"Cohesion API connection error: {exc}"
-    except requests.exceptions.RequestException as exc:
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "timeout" in msg or "timed" in msg:
+            return None, "Cohesion API timed out"
+        if "connection" in msg:
+            return None, f"Cohesion API connection error: {exc}"
         return None, f"Cohesion API request failed: {exc}"
 
     if resp.status_code != 200:

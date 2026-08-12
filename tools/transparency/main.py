@@ -26,11 +26,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "transparency_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 TRANSPARENCY_URL = "https://transparency-register.europa.eu/odplastorganisationxml_en"
 # Files in working_dir (we get the working dir from SubprocessContext).
@@ -133,13 +129,13 @@ def _download_bulk(dest_path: str, timeout: int) -> tuple[bool, str | None]:
     if not REQUESTS_AVAILABLE:
         return False, "requests library not available"
     try:
-        with requests.get(
-            TRANSPARENCY_URL,
+        resp = request_with_retry(
+            "GET", TRANSPARENCY_URL,
             stream=True,
             timeout=timeout,
             headers={"Accept": "application/xml, */*"},
-            allow_redirects=True,
-        ) as resp:
+        )
+        try:
             if resp.status_code != 200:
                 return False, f"HTTP {resp.status_code} from transparency register"
             tmp = dest_path + ".part"
@@ -148,10 +144,13 @@ def _download_bulk(dest_path: str, timeout: int) -> tuple[bool, str | None]:
                     if chunk:
                         fh.write(chunk)
             os.replace(tmp, dest_path)
+        finally:
+            resp.close()
         return True, None
-    except requests.exceptions.Timeout:
-        return False, "transparency register download timed out"
     except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return False, "transparency register download timed out"
         return False, f"download failed: {type(e).__name__}: {e}"
 
 

@@ -35,13 +35,7 @@ from common.structured_logging import get_logger  # noqa: E402
 
 logger = get_logger(__name__, "ted_fetch")
 
-try:
-    import requests as _requests  # noqa: F401
-    requests = _requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    requests = None  # type: ignore[assignment]
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 TED_SEARCH_URL = "https://api.ted.europa.eu/v3/notices/search"
 DEFAULT_ROWS = 100
@@ -209,9 +203,8 @@ def _fetch_page(page: int, from_ted: str, to_ted: str, scope: str) -> dict:
         "scope": scope.upper(),
     }
     try:
-        assert requests is not None
-        resp = requests.post(
-            TED_SEARCH_URL,
+        resp = request_with_retry(
+            "POST", TED_SEARCH_URL,
             json=payload,
             headers={"Accept": "application/json"},
             timeout=30,
@@ -224,14 +217,14 @@ def _fetch_page(page: int, from_ted: str, to_ted: str, scope: str) -> dict:
         record["notices"] = data.get("notices") or []
         record["total"] = data.get("totalNoticeCount") or 0
         record["timed_out"] = bool(data.get("timedOut", False))
-    except requests.exceptions.Timeout:  # type: ignore[union-attr]
-        record["error"] = "timeout"
-    except requests.exceptions.RequestException as e:  # type: ignore[union-attr]
-        record["error"] = f"request error: {e}"
     except json.JSONDecodeError:
         record["error"] = "invalid json response"
     except Exception as e:  # noqa: BLE001
-        record["error"] = f"unexpected: {e}"
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            record["error"] = "timeout"
+        else:
+            record["error"] = f"request error: {e}"
     return record
 
 

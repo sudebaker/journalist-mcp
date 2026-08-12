@@ -30,12 +30,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "contratacion_fetch")
 
-try:
-    import requests as _requests  # type: ignore
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    _requests = None  # type: ignore
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 
 CONTRATACION_ZIP_URL = (
@@ -135,21 +130,20 @@ def _resolve_bundles(args: dict) -> list[tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 def _download_zip(year: int, month: int) -> bytes:
-    if not REQUESTS_AVAILABLE or _requests is None:
+    if not REQUESTS_AVAILABLE:
         raise RuntimeError("requests library not available")
     url = CONTRATACION_ZIP_URL.format(yyyymm=f"{year}{month:02d}")
     logger.info(
         "downloading contratacion bundle",
         extra_data={"url": url, "year": year, "month": month},
     )
-    resp = _requests.get(
-        url,
+    resp = request_with_retry(
+        "GET", url,
         timeout=HTTP_TIMEOUT_SECONDS,
         headers={
             "User-Agent": "journalist-mcp/contratacion_fetch",
             "Accept": "application/zip,application/octet-stream,*/*",
         },
-        allow_redirects=True,
     )
     if resp.status_code != 200:
         raise RuntimeError(

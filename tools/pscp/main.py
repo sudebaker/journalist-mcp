@@ -20,11 +20,7 @@ from common.structured_logging import get_logger
 
 logger = get_logger(__name__, "pscp_fetch")
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 # Atom / UBL namespaces used by contrataciondelestado.es feeds.
 NS = {
@@ -161,17 +157,18 @@ def fetch_feed(feed_type: str, limit: int) -> tuple[list[dict[str, Any]], Option
     if not url:
         return [], f"unknown feed_type '{feed_type}'"
     try:
-        resp = requests.get(
-            url,
+        resp = request_with_retry(
+            "GET", url,
             timeout=HTTP_TIMEOUT,
             headers={
                 "Accept": "application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
                 "User-Agent": "journalist-mcp/pscp_fetch (+https://github.com/journalist-mcp)",
             },
         )
-    except requests.exceptions.Timeout:
-        return [], "PSCP feed timed out"
     except Exception as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            return [], "PSCP feed timed out"
         return [], f"PSCP fetch failed: {e}"
     if resp.status_code != 200:
         return [], f"PSCP feed returned HTTP {resp.status_code}"

@@ -68,13 +68,7 @@ from common.structured_logging import get_logger  # noqa: E402
 
 logger = get_logger(__name__, "borme_fetch")
 
-try:
-    import requests as _requests  # noqa: F401
-    requests = _requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    requests = None  # type: ignore[assignment]
-    REQUESTS_AVAILABLE = False
+from common.http import request_with_retry, REQUESTS_AVAILABLE
 
 BORME_API_BASE = "https://www.boe.es/datosabiertos/api"
 DEFAULT_WORKERS = 4
@@ -154,13 +148,13 @@ def fetch_day(borme_date: str, rate_limiter: "RateLimiter | None" = None) -> dic
         "error": None,
         "items": [],
     }
-    if not REQUESTS_AVAILABLE or requests is None:
+    if not REQUESTS_AVAILABLE:
         record["error"] = "requests library not available"
         return record
     if rate_limiter is not None:
         rate_limiter.wait()
     try:
-        resp = requests.get(url, headers={"Accept": "application/json"}, timeout=20)
+        resp = request_with_retry("GET", url, headers={"Accept": "application/json"}, timeout=20)
         record["status"] = resp.status_code
         if resp.status_code != 200:
             record["error"] = f"HTTP {resp.status_code}"
@@ -169,14 +163,14 @@ def fetch_day(borme_date: str, rate_limiter: "RateLimiter | None" = None) -> dic
         # La API de BORME envuelve el sumario en data.sumario.diario[…].seccion[…].item
         record["items"] = _extract_items(data)
         record["count"] = len(record["items"])
-    except requests.exceptions.Timeout:
-        record["error"] = "timeout"
-    except requests.exceptions.RequestException as e:
-        record["error"] = f"request error: {e}"
     except json.JSONDecodeError:
         record["error"] = "invalid json response"
     except Exception as e:  # noqa: BLE001
-        record["error"] = f"unexpected: {e}"
+        msg = str(e).lower()
+        if "timeout" in msg or "timed" in msg:
+            record["error"] = "timeout"
+        else:
+            record["error"] = f"request error: {e}"
     return record
 
 
