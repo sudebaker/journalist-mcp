@@ -46,6 +46,13 @@ def test_get_session_returns_configured_session():
 
 
 @pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
+def test_get_session_is_cached():
+    session1 = get_session()
+    session2 = get_session()
+    assert session1 is session2, "get_session should reuse the same Session instance"
+
+
+@pytest.mark.skipif(not REQUESTS_AVAILABLE, reason="requests not installed")
 def test_request_with_retry_get_200():
     server, url = _local_server()
     try:

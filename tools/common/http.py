@@ -43,25 +43,34 @@ _POOL_MAXSIZE = 10
 __all__ = ["get_session", "request_with_retry", "REQUESTS_AVAILABLE",
            "_URLLIB3_RETRY_AVAILABLE"]
 
+# Module-level session singleton so that connection pooling is reused across
+# calls. requests.Session is thread-safe for the request()/get()/post() path.
+_session: "requests.Session | None" = None
+
 
 def get_session() -> "requests.Session":
-    """Create a configured requests.Session.
+    """Return a configured requests.Session, reusing the module singleton.
 
     Sets User-Agent and Accept headers, and configures connection pooling.
+    The same instance is returned on subsequent calls so TCP connections can
+    be reused across requests.
     """
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": _USER_AGENT,
-        "Accept": "application/json, text/html, text/plain, */*",
-    })
-    adapter = HTTPAdapter(
-        pool_connections=_POOL_CONNECTIONS,
-        pool_maxsize=_POOL_MAXSIZE,
-        max_retries=0,
-    )
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
+    global _session
+    if _session is None:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": _USER_AGENT,
+            "Accept": "application/json, text/html, text/plain, */*",
+        })
+        adapter = HTTPAdapter(
+            pool_connections=_POOL_CONNECTIONS,
+            pool_maxsize=_POOL_MAXSIZE,
+            max_retries=0,
+        )
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        _session = session
+    return _session
 
 
 def _build_retry_adapter(max_retries: int) -> HTTPAdapter:
