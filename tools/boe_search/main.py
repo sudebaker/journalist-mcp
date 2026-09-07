@@ -155,7 +155,7 @@ def main() -> None:
             write_response({"success": False, "request_id": request_id,
                             "error": {"code": "SEARCH_FAILED", "message": error}})
             return
-        lines = [f"**BOE — Disposiciones y anuncios para {target}**\n"]
+        lines = [f"**BOE — Disposiciones y actos para {target}**\n"]
         for r in results:
             lines.append(f"Fecha: {r['date']}")
             lines.append(f"**{r['title']}**")

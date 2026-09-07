@@ -9,7 +9,7 @@ input_schema:
   properties:
     target:
       type: string
-      description: "NIF/CIF o nombre a buscar en el texto de anuncios"
+      description: "NIF/CIF o nombre a buscar en los títulos del sumario BOE"
     target_type:
       type: string
       enum: [nif, cif, name]

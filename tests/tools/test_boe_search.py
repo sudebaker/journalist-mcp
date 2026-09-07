@@ -14,6 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 
 from boe_search import main as boe  # noqa: E402
 
+# Real function captured before other tests swap boe.fetch_boe_day for stubs.
+_REAL_FETCH_BOE_DAY = boe.fetch_boe_day
+
 # Fixture: estructura real observada en https://www.boe.es/datosabiertos/api/boe/sumario/{aaaammdd}
 REAL_SUMARIO = {
     "status": {"code": "200", "text": "ok"},
@@ -148,6 +151,50 @@ def test_empty_results_is_success_zero():
     assert env["count"] == 0 and env["results"] == []
 
 
+class _FakeResp:
+    status_code = 200
+
+    def json(self):
+        return REAL_SUMARIO
+
+
+class _FakeResp500:
+    status_code = 500
+
+    def json(self):
+        return {}
+
+
+def test_fetch_boe_day_parses_real_nested_json():
+    prev_fetch, prev_rr = boe.fetch_boe_day, boe.request_with_retry
+    try:
+        boe.fetch_boe_day = _REAL_FETCH_BOE_DAY
+        boe.request_with_retry = lambda *a, **k: _FakeResp()
+        items = boe.fetch_boe_day("20260903")
+    finally:
+        boe.fetch_boe_day = prev_fetch
+        boe.request_with_retry = prev_rr
+    assert len(items) == 2
+    assert items[0]["identificador"] == "BOE-A-2026-11111"
+    assert items[0]["seccion"] == "1"
+    assert items[0]["epigrafe"] == "Leyes Orgánicas"
+    assert items[1]["identificador"] == "BOE-A-2026-22222"
+    assert items[1]["seccion"] == "2A"
+    assert items[1]["epigrafe"] == "Situaciones"
+
+
+def test_fetch_boe_day_non_200_returns_empty():
+    prev_fetch, prev_rr = boe.fetch_boe_day, boe.request_with_retry
+    try:
+        boe.fetch_boe_day = _REAL_FETCH_BOE_DAY
+        boe.request_with_retry = lambda *a, **k: _FakeResp500()
+        items = boe.fetch_boe_day("20260903")
+    finally:
+        boe.fetch_boe_day = prev_fetch
+        boe.request_with_retry = prev_rr
+    assert items == []
+
+
 def test_duplicate_ids_stable_across_calls():
     ev1 = boe.build_evidence("boe", True, 0.9, "T", "2026-09-03",
                              "https://boe.es/x", entity="B1")
@@ -166,6 +213,8 @@ if __name__ == "__main__":
         test_search_boe_builds_contract_evidence_iso_date,
         test_search_boe_nif_matches_uppercase_in_titulo,
         test_empty_results_is_success_zero,
+        test_fetch_boe_day_parses_real_nested_json,
+        test_fetch_boe_day_non_200_returns_empty,
         test_duplicate_ids_stable_across_calls,
     ]
     passed = failed = 0

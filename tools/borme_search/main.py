@@ -198,6 +198,12 @@ def _evidence_from_secondary_item(item: dict, target: str, day_iso: str) -> list
     )]
 
 
+# Accepted cost model (human-reviewed): full per-day sweep. Every section A
+# province XML for the submitted day is fetched before matching completes —
+# all fetches are submitted up front and the ThreadPoolExecutor drains any
+# pending ones on exit. Latency is bounded by the slowest province of the
+# day; results are deterministic for a given sumario. Do NOT restructure
+# (e.g. into a lazy/cancellable fetch) without revisiting this decision.
 def _search_primary_day(
     items: list[dict], target: str, count: int, day_iso: str
 ) -> list[dict]:

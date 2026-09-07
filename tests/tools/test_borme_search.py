@@ -15,6 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 
 from borme_search import main as borme  # noqa: E402
 
+# Real function captured before other tests swap borme.fetch_borme_day for stubs.
+_REAL_FETCH_BORME_DAY = borme.fetch_borme_day
+
 
 # Fixture: estructura real del sumario BORME
 REAL_BORME_SUMARIO = {
@@ -247,6 +250,45 @@ def test_search_borme_empty_success_zero():
     results, err = borme.search_borme("NADIE", "name", "2025-01-01", "2025-01-01")
     assert err is None
     assert results == []
+
+
+class _FakeResp:
+    status_code = 200
+
+    def json(self):
+        return REAL_BORME_SUMARIO
+
+
+class _FakeResp500:
+    status_code = 500
+
+    def json(self):
+        return {}
+
+
+def test_fetch_borme_day_parses_real_nested_json(monkeypatch):
+    monkeypatch.setattr(borme, "fetch_borme_day", _REAL_FETCH_BORME_DAY)
+    monkeypatch.setattr(
+        "borme_search.main.request_with_retry",
+        lambda *a, **k: _FakeResp(),
+    )
+    items = borme.fetch_borme_day("20260903")
+    assert len(items) == 2
+    assert items[0]["seccion"] == "A"
+    assert items[0]["apartado"] == ""
+    assert items[0]["titulo"] == "ARABA/ÁLAVA"
+    assert items[1]["seccion"] == "C"
+    assert items[1]["apartado"] == "CONVOCATORIAS DE JUNTAS"
+    assert items[1]["titulo"] == "CONTRATAS Y OBRAS SAN GREGORIO, S.A."
+
+
+def test_fetch_borme_day_non_200_returns_empty(monkeypatch):
+    monkeypatch.setattr(borme, "fetch_borme_day", _REAL_FETCH_BORME_DAY)
+    monkeypatch.setattr(
+        "borme_search.main.request_with_retry",
+        lambda *a, **k: _FakeResp500(),
+    )
+    assert borme.fetch_borme_day("20260903") == []
 
 
 if __name__ == "__main__":
