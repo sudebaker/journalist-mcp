@@ -178,7 +178,7 @@ name: borme_search
 description: "Busca actos mercantiles en BORME por NOMBRE de empresa (el BORME abierto no publica NIF/CIF). Descarga sumarios por rango y extrae actos desde los XML por provincia."
 command: python3
 args: [main.py]
-timeout: 120s
+timeout: 300s
 input_schema:
   type: object
   properties:
@@ -224,7 +224,11 @@ input_schema:
    - Para cada `item` de cada `apartado`, matchear `item.titulo` por nombre normalizado.
    - Cada match → evidence con `title` = título del item, `url` = `url_html`, `metadata={"identificador", "apartado", "seccion": "C"}`. Sin descarga de XML.
 
-5. **Coste acotado**: la fase 3 domina (~50 provincias/día máximo, pero solo Sección Primera). Mitigación: cortar al alcanzar `count` y evitar procesar provincias una vez satisfecho; default de solo 7 días.
+5. **Coste acotado**: la fase 3 domina (~50 provincias/día máximo, pero solo Sección Primera). Mitigación:
+   - **Descarga concurrente**: los `GET url_xml` de provincia se ejecutan con `ThreadPoolExecutor(max_workers=8)` (stdlib); los resultados se ordenan de forma determinista tras la recolección para no depender del orden de finalización.
+   - Cortar al alcanzar `count` (no lanzar más descargas una vez satisfecho).
+   - Default de solo 7 días (`BORME_LOOKBACK_DAYS`).
+   - `timeout: 300s` en `tool.yaml` (§5.1) porque el peor caso (sin matches) exige barrer el rango completo.
 
 ### 5.3 Nota sobre concursos
 
