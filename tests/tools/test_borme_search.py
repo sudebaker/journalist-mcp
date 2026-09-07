@@ -154,28 +154,56 @@ def test_duplicate_ids_stable_across_calls():
     assert ev1["id"] == ev2["id"]
 
 
+def test_search_borme_section_c_direct_match_no_xml(monkeypatch):
+    items = borme.iter_borme_items(REAL_BORME_SUMARIO)
+    borme.fetch_borme_day = lambda d: items  # type: ignore[assignment]
+    monkeypatch.setattr(borme, "fetch_province_xml", lambda url: None)
+    results, err = borme.search_borme(
+        "SAN GREGORIO", "name", "2026-09-03", "2026-09-03", count=10
+    )
+    assert err is None
+    assert len(results) == 1
+    ev = results[0]
+    assert ev["source"] == "borme"
+    assert ev["title"] == "CONTRATAS Y OBRAS SAN GREGORIO, S.A."
+    assert ev["metadata"]["seccion"] == "C"
+    assert ev["metadata"]["apartado"] == "CONVOCATORIAS DE JUNTAS"
+    assert ev["date"] == "2026-09-03"
+
+
+def test_search_borme_section_a_uses_province_xml(monkeypatch):
+    items = borme.iter_borme_items(REAL_BORME_SUMARIO)
+    a_items = [it for it in items if it["seccion"] == "A"]
+    borme.fetch_borme_day = lambda d: a_items  # type: ignore[assignment]
+    monkeypatch.setattr(borme, "fetch_province_xml", lambda url: PROVINCE_XML)
+    results, err = borme.search_borme(
+        "QUALIS", "name", "2026-09-03", "2026-09-03", count=10
+    )
+    assert err is None
+    assert len(results) == 1
+    ev = results[0]
+    assert ev["source"] == "borme"
+    assert ev["title"] == "QUALIS CONSULTORES DE TALENTO SOCIEDAD LIMITADA"
+    assert ev["metadata"]["seccion"] == "A"
+    assert ev["metadata"]["provincia"] == "ARABA/ÁLAVA"
+    assert ev["metadata"]["actos"] == ["Declaración de unipersonalidad. Socio único: TRISKELION INVESTMENTS SL."]
+    assert ev["date"] == "2026-09-03"
+
+
+def test_search_borme_rejects_nif():
+    results, err = borme.search_borme("B12345678", "nif", "2026-09-03", "2026-09-03")
+    assert results is None
+    assert err is not None
+    assert "NIF" in err
+
+
+def test_search_borme_empty_success_zero():
+    borme.fetch_borme_day = lambda d: []  # type: ignore[assignment]
+    results, err = borme.search_borme("NADIE", "name", "2025-01-01", "2025-01-01")
+    assert err is None
+    assert results == []
+
+
 if __name__ == "__main__":
-    tests = [
-        test_iter_borme_items_marks_section_and_apartado,
-        test_iter_borme_items_tolerates_empty,
-        test_name_matches_normalized_bidirectional,
-        test_default_lookback_days_env,
-        test_empty_results_is_success_zero,
-        test_duplicate_ids_stable_across_calls,
-        test_parse_province_xml_groups_companies_and_acts,
-        test_parse_province_xml_invalid_returns_empty,
-        test_clean_company_name_strips_number_and_dot,
-    ]
-    passed = failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS {t.__name__}", file=sys.stderr)
-            passed += 1
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            print(f"FAIL {t.__name__}: {e}", file=sys.stderr)
-            failed += 1
-    print(f"\n{passed} passed, {failed} failed", file=sys.stderr)
-    sys.exit(1 if failed else 0)
+    import pytest
+    raise SystemExit(pytest.main([__file__, "-v"]))

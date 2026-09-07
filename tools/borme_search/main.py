@@ -176,44 +176,103 @@ def fetch_borme_day(date_str: str) -> list[dict]:
         return []
 
 
-def matches_target(item: dict, target: str, target_type: str) -> bool:
-    if target_type in ("nif", "cif"):
-        nif = str(item.get("nif", "")).upper()
-        return target.upper() in nif or nif == target.upper()
-    else:
-        nombre = str(item.get("nombre", "")).lower()
-        return target.lower() in nombre
+def _evidence_from_secondary_item(item: dict, target: str, day_iso: str) -> list[dict] | None:
+    """Section C: match on the sumario item title, no XML download."""
+    title = str(item.get("titulo", ""))
+    if not name_matches(target, title):
+        return None
+    return [build_evidence(
+        source="borme",
+        official=True,
+        confidence=0.9,
+        title=title,
+        date=day_iso,
+        url=str(item.get("url_html", "") or ""),
+        metadata={
+            "identificador": item.get("identificador", ""),
+            "seccion": item.get("seccion", "C"),
+            "apartado": item.get("apartado", ""),
+        },
+        entity=target,
+        query=target,
+    )]
 
 
-def search_borme(target: str, target_type: str, date_from: str, date_to: str):
-    if not REQUESTS_AVAILABLE:
-        return None, "requests library not available"
-    dates = date_range(date_from, date_to)
-    if len(dates) > 90:
-        return None, "date range too large (max 90 days)"
-    results = []
-    for d in dates:
-        items = fetch_borme_day(d)
-        for item in items:
-            if matches_target(item, target, target_type):
-                url = item.get("url", "")
-                nombre = item.get("nombre", "")
+def _search_primary_day(
+    items: list[dict], target: str, count: int, day_iso: str
+) -> list[dict]:
+    """Section A: fetch each province XML concurrently and match company names."""
+    results: list[dict] = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = [ex.submit(fetch_province_xml, it.get("url_xml", "")) for it in items]
+        for it, fut in zip(items, futures):
+            xml_text = fut.result()
+            if not xml_text:
+                continue
+            for comp in parse_province_xml(xml_text):
+                if not name_matches(target, comp["name"]):
+                    continue
                 results.append(build_evidence(
                     source="borme",
                     official=True,
                     confidence=0.9,
-                    title=nombre,
-                    date=d,
-                    url=url,
-                    entity=target,
-                    raw={
-                        "nif": item.get("nif", ""),
-                        "name": nombre,
-                        "actos": item.get("actos", []),
+                    title=comp["name"],
+                    date=day_iso,
+                    url=str(it.get("url_html", "") or ""),
+                    metadata={
+                        "identificador": it.get("identificador", ""),
+                        "provincia": it.get("titulo", ""),
+                        "seccion": it.get("seccion", "A"),
+                        "actos": comp["acts"],
                     },
+                    entity=target,
                     query=target,
                 ))
-    return results, None
+                if len(results) >= count:
+                    return results
+    return results
+
+
+def search_borme(
+    target: str,
+    target_type: str,
+    date_from: str,
+    date_to: str,
+    count: int | None = None,
+) -> tuple[list[dict] | None, str | None]:
+    if not REQUESTS_AVAILABLE:
+        return None, "requests library not available"
+    if not target:
+        return None, "el parámetro 'target' es obligatorio"
+    if target_type in ("nif", "cif"):
+        return None, (
+            "BORME no publica NIF/CIF (enmascarados por protección de datos); "
+            "busque por nombre de empresa."
+        )
+    if count is None or count <= 0:
+        count = DEFAULT_COUNT
+    dates = date_range(date_from, date_to)
+    if len(dates) > BORME_MAX_RANGE_DAYS:
+        return None, f"date range too large (max {BORME_MAX_RANGE_DAYS} days)"
+    results: list[dict] = []
+    for d in dates:
+        day_iso = datetime.strptime(d, "%Y%m%d").strftime("%Y-%m-%d")
+        items = fetch_borme_day(d)
+        primary = [it for it in items if it.get("seccion") == "A"]
+        secondary = [it for it in items if it.get("seccion") == "C"]
+        for it in secondary:
+            evs = _evidence_from_secondary_item(it, target, day_iso)
+            if evs:
+                results.extend(evs)
+                if len(results) >= count:
+                    return results[:count], None
+        if len(results) >= count:
+            return results[:count], None
+        for ev in _search_primary_day(primary, target, count - len(results), day_iso):
+            results.append(ev)
+            if len(results) >= count:
+                return results[:count], None
+    return results[:count], None
 
 
 def write_response(data: dict[str, Any]) -> None:
@@ -231,10 +290,22 @@ def main() -> None:
             write_response({"success": False, "request_id": request_id,
                             "error": {"code": "MISSING_TARGET", "message": "target is required"}})
             return
-        target_type = args.get("target_type", "nif")
+        target_type = args.get("target_type", "name")
+        if target_type not in ("nif", "cif", "name"):
+            target_type = "name"
         date_from = args.get("date_from", "")
         date_to = args.get("date_to", "")
-        results, error = search_borme(target, target_type, date_from, date_to)
+        count = args.get("count", DEFAULT_COUNT)
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            count = DEFAULT_COUNT
+        if count <= 0:
+            count = DEFAULT_COUNT
+
+        results, error = search_borme(
+            target, target_type, date_from, date_to, count
+        )
         if error:
             write_response({"success": False, "request_id": request_id,
                             "error": {"code": "SEARCH_FAILED", "message": error}})
