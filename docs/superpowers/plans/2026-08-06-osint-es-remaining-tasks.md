@@ -1,5 +1,7 @@
 # Completar OSINT-ES — Tasks 7, 8, 9
 
+> **ESTADO:** COMPLETADO. Este documento se conserva como histórico. Las tareas se implementaron y pushearon a `master` en agosto 2026.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Completar las 3 tareas restantes del plan OSINT-ES: crear `transparency_search` (Task 7), dinamizar el orquestador Go (Task 8), y migrar 4 tools existentes a `common/http.py` (Task 9).
@@ -32,7 +34,7 @@
 - Consumes: `common.http.request_with_retry`, `common.evidence.build_evidence`, `common.entity_normalizer.normalize_for_match`, `common.structured_logging.get_logger`.
 - Produces: `structured_content` con `{source:"TRANSPARENCIA", official:true, confidence:0.9, results:[Evidence...], count:N}`.
 
-- [ ] **Step 1: Crear `tool.yaml`**
+- [x] **Step 1: Crear `tool.yaml`**
 
 ```yaml
 name: transparency_search
@@ -67,7 +69,7 @@ input_schema:
   required: [target]
 ```
 
-- [ ] **Step 2: Crear `main.py`** — parser + lógica de búsqueda
+- [x] **Step 2: Crear `main.py`** — parser + lógica de búsqueda
 
 ```python
 #!/usr/bin/env python3
@@ -325,21 +327,21 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 3: Smoke test manual**
+- [x] **Step 3: Smoke test manual**
 
 ```bash
 echo '{"request_id":"t","arguments":{"target":"Banco Santander","date_from":"2025-01-01","date_to":"2026-01-01"}}' | python3 tools/transparency_search/main.py
 ```
 
-- [ ] **Step 4: Crear `tests/tools/test_transparency_search.py`**
+- [x] **Step 4: Crear `tests/tools/test_transparency_search.py`**
 
 Siguiendo el patrón de `test_bdns_search.py` (subprocess smoke test).
 
-- [ ] **Step 5: Registrar en `configs/toolsets.yaml`**
+- [x] **Step 5: Registrar en `configs/toolsets.yaml`**
 
 Añadir `- transparency_search` en los toolsets `osint-es` (después de `transparency_fetch`) y `ocu-investigacion` (sección OSINT español).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tools/transparency_search/tool.yaml tools/transparency_search/main.py \
@@ -359,34 +361,34 @@ git commit -m "feat: add transparency_search tool (Portal de Transparencia scrap
 - Consumes: `o.cfg.Tools []config.ToolConfig` (Name field, existe), `cfg.GetToolByName(name)` (existe en `config.go:401`).
 - Produces: `o.resolveSources(requested []string) []string` — nuevo método privado.
 
-- [ ] **Step 1: Escribir el test Go que debe fallar**
+- [x] **Step 1: Escribir el test Go que debe fallar**
 
 Añadir a `internal/orchestrator/investigate_test.go` `TestInvestigateDefaultSourcesDynamic` que espera fan-out a 8 tools `*_search` (excluye `journalist_investigate`).
 
-- [ ] **Step 2: Ejecutar test para verificar que FALLA**
+- [x] **Step 2: Ejecutar test para verificar que FALLA**
 
 ```bash
 go test ./internal/orchestrator/... -run TestInvestigateDefaultSourcesDynamic -v
 ```
 
-- [ ] **Step 3: Cambiar `investigate.go`**
+- [x] **Step 3: Cambiar `investigate.go`**
 
 Reemplazar `var defaultSources = []string{...}` por `resolveSources(requested []string) []string` que deriva de `o.cfg.Tools` filtrando por sufijo `_search` y excluyendo `journalist_investigate`. Añadir `import "strings"`.
 
-- [ ] **Step 4: Ejecutar tests para verificar que PASAN**
+- [x] **Step 4: Ejecutar tests para verificar que PASAN**
 
 ```bash
 go test ./internal/orchestrator/... -v
 ```
 
-- [ ] **Step 5: Verificación Go completa**
+- [x] **Step 5: Verificación Go completa**
 
 ```bash
 go vet ./...
 go build ./cmd/server/
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/orchestrator/investigate.go internal/orchestrator/investigate_test.go
@@ -407,34 +409,34 @@ git commit -m "refactor: derive orchestrator default sources dynamically from to
 - Consumes: `common.http.request_with_retry(method, url, params=..., json=..., headers=..., timeout=...) → requests.Response`.
 - Cambio: reemplazar `requests.get(url, ...)` / `requests.post(url, ...)` por `request_with_retry("GET"/"POST", url, ...)`. Sin cambios en parsing ni en lógica.
 
-- [ ] **Step 1: Migrar `boe_search/main.py`** — reemplazar import requests por `from common.http import request_with_retry, REQUESTS_AVAILABLE`; `requests.get(url, headers, timeout)` → `request_with_retry("GET", url, headers, timeout)`.
+- [x] **Step 1: Migrar `boe_search/main.py`** — reemplazar import requests por `from common.http import request_with_retry, REQUESTS_AVAILABLE`; `requests.get(url, headers, timeout)` → `request_with_retry("GET", url, headers, timeout)`.
 
-- [ ] **Step 2: Smoke test `boe_search`**
+- [x] **Step 2: Smoke test `boe_search`**
 
 ```bash
 echo '{"request_id":"t","arguments":{"target":"Ministerio","target_type":"name","date_from":"2026-07-01","date_to":"2026-08-01"}}' | python3 tools/boe_search/main.py
 ```
 
-- [ ] **Step 3: Migrar `borme_search/main.py`** — mismos 2 cambios.
+- [x] **Step 3: Migrar `borme_search/main.py`** — mismos 2 cambios.
 
-- [ ] **Step 4: Smoke test `borme_search`**
+- [x] **Step 4: Smoke test `borme_search`**
 
-- [ ] **Step 5: Migrar `ted_search/main.py`** — reemplazar import + `requests.post(TED_API_URL, json=payload, timeout=30, headers)` → `request_with_retry("POST", ...)`; adaptar try/except (request_with_retry propaga exceptions).
+- [x] **Step 5: Migrar `ted_search/main.py`** — reemplazar import + `requests.post(TED_API_URL, json=payload, timeout=30, headers)` → `request_with_retry("POST", ...)`; adaptar try/except (request_with_retry propaga exceptions).
 
-- [ ] **Step 6: Smoke test `ted_search`**
+- [x] **Step 6: Smoke test `ted_search`**
 
-- [ ] **Step 7: Migrar `searxng_search/main.py`** — reemplazar import + `requests.get(...)` → `request_with_retry("GET", ...)`; unificar excepts.
+- [x] **Step 7: Migrar `searxng_search/main.py`** — reemplazar import + `requests.get(...)` → `request_with_retry("GET", ...)`; unificar excepts.
 
-- [ ] **Step 8: Smoke test `searxng_search`** (requiere SearXNG corriendo)
+- [x] **Step 8: Smoke test `searxng_search`** (requiere SearXNG corriendo)
 
-- [ ] **Step 9: Verificación completa**
+- [x] **Step 9: Verificación completa**
 
 ```bash
 python3 -m pytest tests/ -q
 go test ./...
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add tools/boe_search/main.py tools/borme_search/main.py \
@@ -449,15 +451,24 @@ git commit -m "refactor: migrate boe/borme/ted/searxng to common/http.py request
 ```
 Task 7 (transparency_search)  +  Task 9 (migración 4 tools)  →  paralelo
                               ↓
-                   Task 8 (Go dinámico)  →  último, integra todo
+                    Task 8 (Go dinámico)  →  último, integra todo
 ```
+
+Realmente se ejecutó en dos tramos:
+- Fase 4: contrato de evidencias, normalización de 7 fuentes `*_search`, agregación determinista, métricas por fuente y documentación.
+- Migración completa de capa HTTP: además de las 4 tools del plan original, se migraron todas las tools Python restantes a `common/http.request_with_retry` y se añadieron soporte para `files=` y `allow_redirects=`.
 
 ## Plan de verificación final
 
-1. `python3 -m pytest tests/ -q` — 28+ tests Python
-2. `python3 tests/tools/test_transparency_search.py` — nuevo smoke test
-3. `go test ./...` — todos los paquetes Go
-4. `go vet ./...` — sin errores
-5. `go build ./cmd/server/` — compila
-6. Smoke test manual de cada tool migrado (boe, borme, ted, searxng)
-7. `journalist_investigate {target:"Banco Santander"}` → 8 sub-resultados (dinámico desde config)
+- [x] `python3 -m pytest tests/ -q` — 62 tests Python pasan.
+- [x] `go test ./...` — todos los paquetes Go pasan.
+- [x] `go vet ./...` — sin errores.
+- [x] `go build ./cmd/server/` — compila.
+- [x] Trabajo pusheado a `origin/master`.
+
+---
+
+## Notas de cierre
+
+- `transparency_search` cubre **publicidad_activa**; el scope `altos_cargos` queda bloqueado porque el portal no expone endpoint buscable (solo navegación jerárquica).
+- `tools/common/retry.py` mantiene `requests` directo a propósito: es un wrapper de `tenacity` para LLMs, no encaja en `request_with_retry`.
