@@ -62,6 +62,43 @@ REAL_BORME_SUMARIO = {
 }
 
 
+PROVINCE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<documento fecha_actualizacion="20260903T071717Z">
+  <metadatos>
+    <identificador>BORME-A-2026-170-01</identificador>
+    <titulo>ARABA/ÁLAVA</titulo>
+    <seccion codigo="A">SECCIÓN PRIMERA. Empresarios. Actos inscritos</seccion>
+    <fecha_publicacion>20260903</fecha_publicacion>
+  </metadatos>
+  <texto>
+    <p class="articulo">401698 - QUALIS CONSULTORES DE TALENTO SOCIEDAD LIMITADA.</p>
+    <p class="parrafo">Declaración de unipersonalidad. Socio único: TRISKELION INVESTMENTS SL.</p>
+    <p class="articulo">401699 - SEÑALIZACION Y BALIZAMIENTOS JUNDIZ, SOCIEDAD LIMITADA.</p>
+    <p class="parrafo">Sociedad unipersonal. Cambio de identidad del socio único.</p>
+  </texto>
+</documento>
+"""
+
+
+def test_parse_province_xml_groups_companies_and_acts():
+    companies = borme.parse_province_xml(PROVINCE_XML)
+    assert len(companies) == 2
+    assert companies[0]["name"] == "QUALIS CONSULTORES DE TALENTO SOCIEDAD LIMITADA"
+    assert companies[0]["acts"] == ["Declaración de unipersonalidad. Socio único: TRISKELION INVESTMENTS SL."]
+    assert companies[1]["name"] == "SEÑALIZACION Y BALIZAMIENTOS JUNDIZ, SOCIEDAD LIMITADA"
+    assert companies[1]["acts"] == ["Sociedad unipersonal. Cambio de identidad del socio único."]
+
+
+def test_parse_province_xml_invalid_returns_empty():
+    assert borme.parse_province_xml("<not-xml") == []
+    assert borme.parse_province_xml("") == []
+
+
+def test_clean_company_name_strips_number_and_dot():
+    assert borme._clean_company_name("401698 - QUALIS SOCIEDAD LIMITADA.") == "QUALIS SOCIEDAD LIMITADA"
+    assert borme._clean_company_name("Sin numero.") == "Sin numero"
+
+
 def test_iter_borme_items_marks_section_and_apartado():
     items = borme.iter_borme_items(REAL_BORME_SUMARIO)
     assert len(items) == 2
@@ -125,6 +162,9 @@ if __name__ == "__main__":
         test_default_lookback_days_env,
         test_empty_results_is_success_zero,
         test_duplicate_ids_stable_across_calls,
+        test_parse_province_xml_groups_companies_and_acts,
+        test_parse_province_xml_invalid_returns_empty,
+        test_clean_company_name_strips_number_and_dot,
     ]
     passed = failed = 0
     for t in tests:

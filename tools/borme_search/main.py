@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
@@ -70,6 +71,73 @@ def name_matches(target: str, candidate: str) -> bool:
     tn = normalize_for_match(target)
     cn = normalize_for_match(candidate)
     return bool(tn and cn and (tn in cn or cn in tn))
+
+
+_COMPANY_PREFIX_RE = re.compile(r'^\s*\d+\s*[-–]\s*')
+
+
+def _clean_company_name(raw: str) -> str:
+    text = (raw or "").strip()
+    text = _COMPANY_PREFIX_RE.sub("", text)
+    return text.rstrip(".").strip()
+
+
+def parse_province_xml(xml_text: str) -> list[dict]:
+    """Parse a BORME province XML into [{'name', 'acts'}, ...].
+
+    Company headings are <p class="articulo"> ("NNN - NAME.") followed by
+    one or more <p class="parrafo"> with the registered acts.
+    """
+    companies: list[dict] = []
+    if not xml_text:
+        return companies
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        logger.warning(
+            "BORME province XML parse failed",
+            extra_data={"error": str(exc)},
+        )
+        return companies
+    current: dict | None = None
+    for p in root.iter("p"):
+        cls = (p.get("class") or "").strip()
+        text = "".join(p.itertext()).strip()
+        if not text:
+            continue
+        if cls == "articulo":
+            current = {"name": _clean_company_name(text), "acts": []}
+            companies.append(current)
+        elif cls == "parrafo" and current is not None:
+            current["acts"].append(text)
+    return companies
+
+
+def fetch_province_xml(url_xml: str) -> str | None:
+    """GET a BORME province XML. Returns text, or None on failure."""
+    if not url_xml:
+        return None
+    try:
+        resp = request_with_retry(
+            "GET",
+            url_xml,
+            headers={"Accept": "application/xml, text/xml, */*"},
+            timeout=15,
+            max_retries=2,
+        )
+    except Exception as exc:
+        logger.warning(
+            "BORME province fetch failed",
+            extra_data={"url": url_xml, "error": str(exc)},
+        )
+        return None
+    if resp.status_code != 200:
+        logger.warning(
+            "BORME province HTTP error",
+            extra_data={"url": url_xml, "status_code": resp.status_code},
+        )
+        return None
+    return resp.text
 
 
 def date_range(from_str: str, to_str: str) -> list[str]:
