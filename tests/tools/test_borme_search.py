@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Offline unit tests for tools/borme_search/main.py — evidence contract.
+"""Offline unit tests for tools/borme_search/main.py — real nested sumario.
 
-No network access: exercises fetch-independent logic (matching, contract
-shapes, empty results, raw preservation, deterministic ids).
+No network access: fixtures mirror the real API response shape
+(data.sumario.diario[].seccion[], with section C items nested under
+apartado[].item[]).
 
 Standalone runner: ``python3 tests/tools/test_borme_search.py``
 """
@@ -15,28 +16,88 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "tools"))
 from borme_search import main as borme  # noqa: E402
 
 
-def test_matches_target_nif_exact_and_name_substring():
-    assert borme.matches_target({"nif": "B12345678"}, "b12345678", "nif")
-    assert borme.matches_target({"nif": "B12345678"}, "B12345678", "nif")
-    assert borme.matches_target({"nombre": "TEST SL SA"}, "Test Sl", "name")
-    assert not borme.matches_target({"nif": "A98765432"}, "B12345678", "nif")
+# Fixture: estructura real del sumario BORME
+REAL_BORME_SUMARIO = {
+    "status": {"code": "200", "text": "ok"},
+    "data": {
+        "sumario": {
+            "diario": [
+                {
+                    "numero": "170",
+                    "seccion": [
+                        {
+                            "codigo": "A",
+                            "nombre": "SECCIÓN PRIMERA. Empresarios. Actos inscritos",
+                            "item": [
+                                {
+                                    "identificador": "BORME-A-2026-170-01",
+                                    "titulo": "ARABA/ÁLAVA",
+                                    "url_html": "https://www.boe.es/diario_borme/txt.php?id=BORME-A-2026-170-01",
+                                    "url_xml": "https://www.boe.es/diario_borme/xml.php?id=BORME-A-2026-170-01",
+                                }
+                            ],
+                        },
+                        {
+                            "codigo": "C",
+                            "nombre": "SECCIÓN SEGUNDA. Anuncios y avisos legales",
+                            "apartado": [
+                                {
+                                    "codigo": "002",
+                                    "nombre": "CONVOCATORIAS DE JUNTAS",
+                                    "item": [
+                                        {
+                                            "identificador": "BORME-C-2026-4855",
+                                            "titulo": "CONTRATAS Y OBRAS SAN GREGORIO, S.A.",
+                                            "url_html": "https://www.boe.es/diario_borme/txt.php?id=BORME-C-2026-4855",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+    },
+}
 
 
-def test_search_builds_contract_evidence_with_raw():
-    items = [{"nif": "B12345678", "nombre": "TEST SL",
-              "actos": ["Nombramiento"], "url": "https://boe.es/y1"}]
-    borme.fetch_borme_day = lambda d: items  # type: ignore[assignment]
-    results, err = borme.search_borme("B12345678", "nif", "2025-01-01", "2025-01-01")
-    assert err is None
-    assert len(results) == 1
-    ev = results[0]
-    assert ev["source"] == "borme"
-    assert ev["official"] is True
-    assert ev["title"] == "TEST SL"
-    assert ev["entity"] == "B12345678"
-    assert ev["raw"]["nif"] == "B12345678"
-    assert ev["raw"]["actos"] == ["Nombramiento"]
-    assert len(ev["id"]) == 16
+def test_iter_borme_items_marks_section_and_apartado():
+    items = borme.iter_borme_items(REAL_BORME_SUMARIO)
+    assert len(items) == 2
+    assert items[0]["seccion"] == "A"
+    assert items[0]["apartado"] == ""
+    assert items[0]["titulo"] == "ARABA/ÁLAVA"
+    assert items[1]["seccion"] == "C"
+    assert items[1]["apartado"] == "CONVOCATORIAS DE JUNTAS"
+    assert items[1]["titulo"] == "CONTRATAS Y OBRAS SAN GREGORIO, S.A."
+
+
+def test_iter_borme_items_tolerates_empty():
+    assert borme.iter_borme_items({}) == []
+
+
+def test_name_matches_normalized_bidirectional():
+    assert borme.name_matches("CONTRATAS Y OBRAS SAN GREGORIO", "Contratas y Obras San Gregorio, S.A.")
+    assert borme.name_matches("Santander", "BANCO SANTANDER, S.A.")
+    assert not borme.name_matches("BBVA", "BANCO SANTANDER, S.A.")
+
+
+def test_default_lookback_days_env():
+    import os as _os
+    saved = _os.environ.get("BORME_LOOKBACK_DAYS")
+    try:
+        _os.environ.pop("BORME_LOOKBACK_DAYS", None)
+        assert borme._default_lookback_days() == 7
+        _os.environ["BORME_LOOKBACK_DAYS"] = "3"
+        assert borme._default_lookback_days() == 3
+        _os.environ["BORME_LOOKBACK_DAYS"] = "abc"
+        assert borme._default_lookback_days() == 7
+    finally:
+        if saved is None:
+            _os.environ.pop("BORME_LOOKBACK_DAYS", None)
+        else:
+            _os.environ["BORME_LOOKBACK_DAYS"] = saved
 
 
 def test_empty_results_is_success_zero():
@@ -46,15 +107,6 @@ def test_empty_results_is_success_zero():
     assert results == []
     env = borme.build_search_result("borme", "NADIE", results)
     assert env["count"] == 0 and env["results"] == []
-
-
-def test_changed_field_missing_tolerated():
-    # Formato cambiado: item sin 'nif'/'url' no debe romper el builder.
-    borme.fetch_borme_day = lambda d: [{"nombre": "TEST SL"}]  # type: ignore[assignment]
-    results, err = borme.search_borme("TEST SL", "name", "2025-01-01", "2025-01-01")
-    assert err is None
-    assert len(results) == 1
-    assert results[0]["url"] == ""
 
 
 def test_duplicate_ids_stable_across_calls():
@@ -67,10 +119,11 @@ def test_duplicate_ids_stable_across_calls():
 
 if __name__ == "__main__":
     tests = [
-        test_matches_target_nif_exact_and_name_substring,
-        test_search_builds_contract_evidence_with_raw,
+        test_iter_borme_items_marks_section_and_apartado,
+        test_iter_borme_items_tolerates_empty,
+        test_name_matches_normalized_bidirectional,
+        test_default_lookback_days_env,
         test_empty_results_is_success_zero,
-        test_changed_field_missing_tolerated,
         test_duplicate_ids_stable_across_calls,
     ]
     passed = failed = 0

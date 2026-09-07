@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -9,15 +11,70 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from common.structured_logging import get_logger
 from common.http import request_with_retry, REQUESTS_AVAILABLE
 from common.evidence import build_evidence, build_search_result
+from common.entity_normalizer import normalize_for_match
 
 logger = get_logger(__name__, "borme_search")
 
 BORME_API = "https://www.boe.es/datosabiertos/api/borme/sumario"
+BORME_MAX_RANGE_DAYS = 90
+DEFAULT_COUNT = 20
+
+
+def _default_lookback_days() -> int:
+    """Return BORME_LOOKBACK_DAYS (default 7), clamped to >= 1."""
+    try:
+        return max(1, int(os.environ.get("BORME_LOOKBACK_DAYS", "7")))
+    except (TypeError, ValueError):
+        return 7
+
+
+def _as_list(value):
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def iter_borme_items(data: dict) -> list[dict]:
+    """Flatten the BORME sumario into enriched item dicts.
+
+    Section A items sit at seccion.item[] (titulo = province); section C
+    items sit at seccion.apartado[].item[] (titulo = entity).
+    Each item carries 'seccion' ('A'|'C') and 'apartado' (name or '').
+    """
+    out: list[dict] = []
+    try:
+        diario = data["data"]["sumario"]["diario"]
+    except (KeyError, TypeError):
+        return out
+    for day in _as_list(diario):
+        for seccion in _as_list(day.get("seccion")):
+            sec_code = seccion.get("codigo", "")
+            for it in _as_list(seccion.get("item")):
+                if isinstance(it, dict):
+                    enriched = dict(it)
+                    enriched["seccion"] = sec_code
+                    enriched["apartado"] = ""
+                    out.append(enriched)
+            for ap in _as_list(seccion.get("apartado")):
+                for it in _as_list(ap.get("item")):
+                    if isinstance(it, dict):
+                        enriched = dict(it)
+                        enriched["seccion"] = sec_code
+                        enriched["apartado"] = ap.get("nombre", "")
+                        out.append(enriched)
+    return out
+
+
+def name_matches(target: str, candidate: str) -> bool:
+    """Bidirectional normalized substring match for company names."""
+    tn = normalize_for_match(target)
+    cn = normalize_for_match(candidate)
+    return bool(tn and cn and (tn in cn or cn in tn))
 
 
 def date_range(from_str: str, to_str: str) -> list[str]:
     fmt = "%Y-%m-%d"
-    start = datetime.strptime(from_str, fmt) if from_str else datetime.now() - timedelta(days=30)
+    start = datetime.strptime(from_str, fmt) if from_str else datetime.now() - timedelta(days=_default_lookback_days())
     end = datetime.strptime(to_str, fmt) if to_str else datetime.now()
     dates = []
     current = start
@@ -30,15 +87,24 @@ def date_range(from_str: str, to_str: str) -> list[str]:
 def fetch_borme_day(date_str: str) -> list[dict]:
     url = f"{BORME_API}/{date_str}"
     try:
-        resp = request_with_retry("GET", url, headers={"Accept": "application/json"}, timeout=15)
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        items = data.get("item", []) or []
-        if isinstance(items, dict):
-            items = [items]
-        return items
-    except Exception:
+        resp = request_with_retry(
+            "GET", url, headers={"Accept": "application/json"}, timeout=15
+        )
+    except Exception as exc:
+        logger.warning(
+            "BORME request failed",
+            extra_data={"date": date_str, "error": str(exc)},
+        )
+        return []
+    if resp.status_code != 200:
+        return []
+    try:
+        return iter_borme_items(resp.json())
+    except Exception as exc:
+        logger.warning(
+            "BORME parse failed",
+            extra_data={"date": date_str, "error": str(exc)},
+        )
         return []
 
 
