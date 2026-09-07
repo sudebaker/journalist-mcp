@@ -1,5 +1,5 @@
 name: boe_search
-description: "Busca disposiciones y anuncios en BOE por NIF/nombre. Descarga sumarios por rango de fechas y filtra localmente."
+description: "Busca disposiciones y actos en BOE por NIF/nombre en títulos del sumario oficial (datos abiertos). Limitación: la API no expone la Sección V (Anuncios) ni Administración de Justicia; solo disposiciones, autoridades/personal y otras disposiciones."
 command: python3
 args:
   - main.py

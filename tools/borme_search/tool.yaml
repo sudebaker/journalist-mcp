@@ -1,25 +1,29 @@
 name: borme_search
-description: "Busca actos mercantiles en BORME por NIF/CIF o nombre de empresa. Descarga sumarios por rango de fechas y filtra localmente."
+description: "Busca actos mercantiles en BORME por NOMBRE de empresa (el BORME abierto no publica NIF/CIF). Descarga sumarios por rango y extrae actos desde los XML por provincia (Sección Primera) y anuncios (Sección Segunda)."
 command: python3
 args:
   - main.py
-timeout: 120s
+timeout: 300s
 input_schema:
   type: object
   properties:
     target:
       type: string
-      description: "NIF/CIF o nombre de empresa"
+      description: "Nombre de empresa a buscar"
     target_type:
       type: string
       enum: [nif, cif, name]
-      default: nif
-      description: "Tipo de identificador"
+      default: name
+      description: "Solo 'name' está soportado; 'nif'/'cif' devuelven SEARCH_FAILED (BORME no publica NIF)."
     date_from:
       type: string
-      description: "Inicio del rango (YYYY-MM-DD). Default: 30 días atrás."
+      description: "Inicio del rango (YYYY-MM-DD). Default: BORME_LOOKBACK_DAYS días atrás."
     date_to:
       type: string
       description: "Fin del rango (YYYY-MM-DD). Default: hoy."
+    count:
+      type: integer
+      default: 20
+      description: "Máximo de resultados a devolver."
   required:
     - target
