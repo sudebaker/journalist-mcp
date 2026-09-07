@@ -190,6 +190,51 @@ def test_search_borme_section_a_uses_province_xml(monkeypatch):
     assert ev["date"] == "2026-09-03"
 
 
+def test_render_results_section_a_shows_actos():
+    ev = borme.build_evidence(
+        "borme", True, 0.9, "QUALIS CONSULTORES DE TALENTO SOCIEDAD LIMITADA",
+        "2026-09-03", "https://boe.es/x", entity="QUALIS",
+        metadata={
+            "identificador": "BORME-A-2026-170-01",
+            "provincia": "ARABA/ÁLAVA",
+            "seccion": "A",
+            "actos": ["Declaración de unipersonalidad. Socio único: TRISKELION INVESTMENTS SL."],
+        },
+    )
+    text = borme._render_results("QUALIS", [ev])
+    assert "**BORME — Actos mercantiles para QUALIS**" in text
+    assert "Fecha: 2026-09-03 | QUALIS CONSULTORES DE TALENTO SOCIEDAD LIMITADA" in text
+    assert "→ Declaración de unipersonalidad." in text
+    assert "Apartado" not in text
+
+
+def test_render_results_section_c_shows_apartado():
+    ev = borme.build_evidence(
+        "borme", True, 0.9, "CONTRATAS Y OBRAS SAN GREGORIO, S.A.",
+        "2026-09-03", "https://boe.es/x", entity="SAN GREGORIO",
+        metadata={
+            "identificador": "BORME-C-2026-4855",
+            "seccion": "C",
+            "apartado": "CONVOCATORIAS DE JUNTAS",
+        },
+    )
+    text = borme._render_results("SAN GREGORIO", [ev])
+    assert "Fecha: 2026-09-03 | CONTRATAS Y OBRAS SAN GREGORIO, S.A." in text
+    assert "→ Apartado: CONVOCATORIAS DE JUNTAS" in text
+
+
+def test_render_results_empty_and_no_nif():
+    empty_text = borme._render_results("NADIE", [])
+    assert "No se encontraron resultados." in empty_text
+    ev = borme.build_evidence(
+        "borme", True, 0.9, "ALGO SA", "2026-09-03", "https://boe.es/x",
+        metadata={"identificador": "BORME-A-2026-170-01", "seccion": "A"},
+    )
+    text = borme._render_results("ALGO", [ev])
+    assert "()" not in text
+    assert "NIF" not in text
+
+
 def test_search_borme_rejects_nif():
     results, err = borme.search_borme("B12345678", "nif", "2026-09-03", "2026-09-03")
     assert results is None

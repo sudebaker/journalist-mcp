@@ -275,6 +275,31 @@ def search_borme(
     return results[:count], None
 
 
+def _render_results(target: str, results: list[dict]) -> str:
+    """Render evidence results into the user-facing markdown text.
+
+    Evidence carries section-specific metadata (never ``raw``):
+    - Section A (actos inscritos): ``metadata.actos`` is a list of acts.
+    - Section C (anuncios): no ``actos`` key; ``metadata.apartado`` names
+      the section apartado as context.
+    BORME masks NIFs by design, so no nif field is ever present.
+    """
+    lines = [f"**BORME — Actos mercantiles para {target}**\n"]
+    for r in results:
+        m = r.get("metadata", {}) or {}
+        lines.append(f"Fecha: {r['date']} | {r['title']}")
+        actos = m.get("actos") or []
+        if actos:
+            for acto in actos:
+                lines.append(f"  → {acto}")
+        elif m.get("apartado"):
+            lines.append(f"  → Apartado: {m['apartado']}")
+        lines.append("")
+    if not results:
+        lines.append("No se encontraron resultados.")
+    return "\n".join(lines)
+
+
 def write_response(data: dict[str, Any]) -> None:
     print(json.dumps(data, default=str), flush=True)
 
@@ -310,18 +335,10 @@ def main() -> None:
             write_response({"success": False, "request_id": request_id,
                             "error": {"code": "SEARCH_FAILED", "message": error}})
             return
-        lines = [f"**BORME — Actos mercantiles para {target}**\n"]
-        for r in results:
-            raw = r.get("raw", {})
-            lines.append(f"Fecha: {r['date']} | {r['title']} ({raw.get('nif', '')})")
-            for acto in raw.get("actos", []):
-                lines.append(f"  → {acto}")
-            lines.append("")
-        if not results:
-            lines.append("No se encontraron resultados.")
+        text = _render_results(target, results)
         write_response({
             "success": True, "request_id": request_id,
-            "content": [{"type": "text", "text": "\n".join(lines)}],
+            "content": [{"type": "text", "text": text}],
             "structured_content": build_search_result(
                 source="borme", target=target, results=results),
         })
