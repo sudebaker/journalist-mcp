@@ -15,6 +15,49 @@ logger = get_logger(__name__, "boe_search")
 BOE_API = "https://www.boe.es/datosabiertos/api/boe/sumario"
 
 
+def _as_list(value):
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def iter_boe_items(data: dict) -> list[dict]:
+    """Flatten the nested BOE sumario into enriched item dicts.
+
+    Real path: data.sumario.diario[].seccion[].departamento[].epigrafe[].item[].
+    Each returned item carries extra keys 'seccion' (section code) and
+    'epigrafe' (epigraph name) for evidence metadata.
+    """
+    out: list[dict] = []
+    try:
+        diario = data["data"]["sumario"]["diario"]
+    except (KeyError, TypeError):
+        return out
+    for day in _as_list(diario):
+        for seccion in _as_list(day.get("seccion")):
+            sec_code = seccion.get("codigo", "")
+            for dep in _as_list(seccion.get("departamento")):
+                for ep in _as_list(dep.get("epigrafe")):
+                    for it in _as_list(ep.get("item")):
+                        if not isinstance(it, dict):
+                            continue
+                        enriched = dict(it)
+                        enriched["seccion"] = sec_code
+                        enriched["epigrafe"] = ep.get("nombre", "")
+                        out.append(enriched)
+    return out
+
+
+def canonical_item_url(item: dict) -> str:
+    """Return url_html, falling back to url_pdf.texto."""
+    url = str(item.get("url_html", "") or "")
+    if not url:
+        pdf = item.get("url_pdf")
+        if isinstance(pdf, dict):
+            url = str(pdf.get("texto", "") or "")
+    return url
+
+
 def date_range(from_str: str, to_str: str) -> list[str]:
     fmt = "%Y-%m-%d"
     start = datetime.strptime(from_str, fmt) if from_str else datetime.now() - timedelta(days=30)
@@ -30,30 +73,34 @@ def date_range(from_str: str, to_str: str) -> list[str]:
 def fetch_boe_day(date_str: str) -> list[dict]:
     url = f"{BOE_API}/{date_str}"
     try:
-        resp = request_with_retry("GET", url, headers={"Accept": "application/json"}, timeout=15)
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        items = data.get("item", []) or []
-        if isinstance(items, dict):
-            items = [items]
-        return items
-    except Exception:
+        resp = request_with_retry(
+            "GET", url, headers={"Accept": "application/json"}, timeout=15
+        )
+    except Exception as exc:
+        logger.warning(
+            "BOE request failed",
+            extra_data={"date": date_str, "error": str(exc)},
+        )
+        return []
+    if resp.status_code != 200:
+        return []
+    try:
+        return iter_boe_items(resp.json())
+    except Exception as exc:
+        logger.warning(
+            "BOE parse failed",
+            extra_data={"date": date_str, "error": str(exc)},
+        )
         return []
 
 
 def matches_target(item: dict, target: str, target_type: str) -> bool:
-    target_upper = target.upper()
-    search_fields = [
-        str(item.get("titulo", "")),
-        str(item.get("contenido", "")),
-        str(item.get("url", "")),
-    ]
-    combined = " ".join(search_fields).upper()
+    titulo = str(item.get("titulo", ""))
+    if not titulo:
+        return False
     if target_type in ("nif", "cif"):
-        return target_upper in combined
-    else:
-        return target.lower() in combined.lower()
+        return target.upper() in titulo.upper()
+    return target.lower() in titulo.lower()
 
 
 def search_boe(target: str, target_type: str, date_from: str, date_to: str):
@@ -64,19 +111,21 @@ def search_boe(target: str, target_type: str, date_from: str, date_to: str):
         return None, "date range too large (max 90 days)"
     results = []
     for d in dates:
-        items = fetch_boe_day(d)
-        for item in items:
+        day_iso = datetime.strptime(d, "%Y%m%d").strftime("%Y-%m-%d")
+        for item in fetch_boe_day(d):
             if matches_target(item, target, target_type):
-                url = item.get("url", "")
-                titulo = item.get("titulo", "")
                 results.append(build_evidence(
                     source="boe",
                     official=True,
                     confidence=0.9,
-                    title=titulo,
-                    date=d,
-                    url=url,
-                    description=item.get("contenido", "")[:300],
+                    title=str(item.get("titulo", "")),
+                    date=day_iso,
+                    url=canonical_item_url(item),
+                    metadata={
+                        "identificador": item.get("identificador", ""),
+                        "seccion": item.get("seccion", ""),
+                        "epigrafe": item.get("epigrafe", ""),
+                    },
                     entity=target,
                     query=target,
                 ))
